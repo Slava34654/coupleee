@@ -4,3 +4,6 @@ __pycache__/
 backend/photos/
 couple_test.db
 .DS_Store
+bin/*.exe
+bin/*.log
+backend/server.log
