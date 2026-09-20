@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+*.db
+backend/photos/
+couple_test.db
+.DS_Store

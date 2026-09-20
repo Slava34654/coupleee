@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#ff5d8f">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="CoupleJoy">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" type="image/png" href="/icons/icon-192.png">
+<link rel="apple-touch-icon" href="/icons/apple-180.png">
+<title>💑 CoupleJoy</title>
+<style>
+  :root{
+    --bg:#141021; --card:#221b3a; --card2:#2b2350;
+    --pink:#ff5d8f; --pink2:#ff7aa5; --gold:#ffd166;
+    --fg:#f4efff; --mut:#a79fd1; --green:#2ed573;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  body{margin:0; font-family:-apple-system,'Segoe UI',Roboto,Arial,sans-serif;
+       background:radial-gradient(120% 60% at 50% -10%, var(--glow,#3b2566) 0%, var(--bg) 60%) fixed, var(--bg);
+       color:var(--fg); min-height:100vh; padding-bottom:86px;}
+  header{position:sticky; top:0; z-index:5; padding:14px 18px 10px;
+         background:rgba(20,16,33,.85); backdrop-filter:blur(8px);}
+  header h1{margin:0; font-size:22px; color:var(--pink);}
+  header small{color:var(--mut);}
+  .iconbtn{background:#2d2452; color:var(--fg); border:1px solid #3d3170;
+           border-radius:12px; font-size:20px; padding:4px 12px; cursor:pointer;}
+  .menu{position:absolute; right:12px; top:60px; background:var(--card2);
+        border:1px solid #3d3170; border-radius:14px; min-width:220px;
+        box-shadow:0 10px 30px rgba(0,0,0,.5); overflow:hidden;}
+  .menu button{display:block; width:100%; background:none; border:0; color:var(--fg);
+               text-align:left; font-size:15px; padding:12px; cursor:pointer;}
+  .menu button:active{background:#3d3170;}
+  main{padding:14px 14px 0; max-width:560px; margin:0 auto;}
+  .card{background:linear-gradient(180deg,var(--card2),var(--card));
+        border:1px solid #3d3170; border-radius:18px; padding:16px; margin:12px 0;
+        box-shadow:0 6px 20px rgba(0,0,0,.35);}
+  .big{font-size:20px; font-weight:800;}
+  .gold{color:var(--gold);} .mut{color:var(--mut);} .green{color:var(--green);}
+  .btn{display:block; width:100%; border:0; border-radius:14px; padding:14px;
+       font-size:16px; font-weight:800; color:#fff;
+       background:linear-gradient(135deg,var(--pink),var(--grad2,#b5179e));
+       margin:8px 0; cursor:pointer;}
+  .btn:active{transform:scale(.98);}
+  .btn.ghost{background:#2d2452;}
+  input,textarea{width:100%; background:#0f0b1e; color:var(--fg); border:1px solid #3d3170;
+       border-radius:12px; padding:13px; font-size:16px; margin:6px 0;}
+  input:focus,textarea:focus{outline:none; border-color:var(--pink);}
+  .moodrow{display:flex; gap:8px; margin-top:8px;}
+  .mood{flex:1; font-size:24px; background:#2d2452; border:1px solid #3d3170;
+        border-radius:14px; padding:10px 0; cursor:pointer; text-align:center;}
+  .mood:active{transform:scale(.92); background:var(--pink);}
+  .item{background:#171231; border:1px solid #332a5e; border-radius:14px;
+        padding:12px; margin:8px 0;}
+  .opt{display:block; width:100%; text-align:left; background:#171231; color:var(--fg);
+       border:1px solid #3d3170; border-radius:12px; padding:12px; margin:6px 0;
+       font-size:15px; cursor:pointer;}
+  .opt.sel{background:var(--pink); border-color:var(--pink); font-weight:700;}
+  nav{position:fixed; left:0; right:0; bottom:0; z-index:5; display:flex;
+      background:rgba(20,16,33,.92); backdrop-filter:blur(8px);
+      border-top:1px solid #3d3170; padding:6px 4px calc(8px + env(safe-area-inset-bottom));}
+  nav button{flex:1; background:none; border:0; color:var(--mut); font-size:11px;
+             padding:6px 0; cursor:pointer;}
+  nav button .i{font-size:22px; display:block;}
+  nav button.on{color:var(--pink); font-weight:800;}
+  .hidden{display:none !important;}
+  .code{font-size:34px; font-weight:800; letter-spacing:4px; color:var(--gold);
+        text-align:center; margin:8px 0;}
+  .ring{width:110px; height:110px; border-radius:50%; margin:4px auto;
+        display:flex; align-items:center; justify-content:center; font-weight:800;
+        font-size:22px; background:conic-gradient(var(--pink) var(--p,0%), #332a5e 0);}
+  .ring span{background:var(--card); width:84px; height:84px; border-radius:50%;
+             display:flex; align-items:center; justify-content:center;}
+  body[data-theme="light"]{--bg:#eef0f8; --card:#ffffff; --card2:#f7f5ff;
+    --fg:#23204a; --mut:#6f6a94;}
+  body[data-theme="light"] header, body[data-theme="light"] nav{background:rgba(255,255,255,.92);}
+  body[data-theme="light"] input, body[data-theme="light"] .item,
+  body[data-theme="light"] .mood, body[data-theme="light"] .menu{background:#fff;}
+  body[data-theme="light"] .iconbtn{background:#ece9f8;}
+  body[data-theme="pink"]{--bg:#26091f; --card:#3d1333; --card2:#4c1840;
+    background:radial-gradient(120% 60% at 50% -10%, #6b1e54 0%, #26091f 60%) fixed, #26091f;}
+  .avatar{width:96px; height:96px; border-radius:50%; object-fit:cover;
+          border:3px solid var(--pink);}
+  .avatar.sm{width:44px; height:44px; border-width:2px;}
+  .row{display:flex; gap:8px; align-items:center;}
+  .row .grow{flex:1;}
+  .chk{font-size:20px;}
+</style>
+</head>
+<body>
+<header><div class="row"><div class="grow">
+  <h1>💑 CoupleJoy</h1><small>пространство для двоих</small></div>
+  <button id="pairmenu-btn" class="iconbtn hidden" onclick="toggleMenu(event)">⋯</button>
+  <button class="iconbtn" onclick="go('theme')" title="Оформление">🎨</button></div>
+  <div id="pairmenu" class="menu hidden">
+    <div class="mut" id="pm-status" style="padding:8px 12px"></div>
+    <button onclick="switchPair()">🔄 Сменить пару</button>
+    <button onclick="leavePair()">💔 Удалить пару</button>
+  </div></header>
+<main>
+  <!-- ПАРА -->
+  <section id="s-pair">
+    <div class="card">
+      <div class="big">Ваша пара 👥</div>
+      <p class="mut">Один создаёт пару и показывает код, второй вводит его у себя.</p>
+      <input id="p-name" placeholder="Ваше имя">
+      <input id="p-birth" type="date">
+      <input type="file" id="p-av" accept="image/*" onchange="previewAvatar(this)">
+      <img id="p-avprev" class="hidden avatar" style="margin-top:6px">
+      <button class="btn" onclick="createPair()">💗 Создать пару</button>
+      <div id="p-code"></div>
+      <input id="p-join" placeholder="Код партнёра" style="text-transform:uppercase">
+      <button class="btn ghost" onclick="joinPair()">🤝 Присоединиться</button>
+    </div>
+  </section>
+
+  <!-- ПРОФИЛЬ ПАРТНЁРА -->
+  <section id="s-profile" class="hidden">
+    <div class="card" style="text-align:center">
+      <img id="pf-av" class="avatar">
+      <div class="big" id="pf-name"></div>
+      <div class="mut" id="pf-age"></div>
+    </div>
+    <div class="card"><div class="big">О партнёре</div><div id="pf-info"></div></div>
+    <button class="btn ghost" onclick="go('home')">← Назад</button>
+  </section>
+
+  <!-- ОФОРМЛЕНИЕ -->
+  <section id="s-theme" class="hidden">
+    <div class="card"><div class="big">🎨 Оформление</div>
+      <p class="mut">Применяется сразу и запоминается на устройстве.</p>
+      <div id="th-list"></div></div>
+    <div class="card"><div class="big">✨ Акцентный цвет</div>
+      <div class="moodrow" id="th-acc"></div>
+      <button class="btn ghost" onclick="localStorage.removeItem('cj_accent');applyTheme(localStorage.getItem('cj_theme')||'dark')">Сбросить акцент</button></div>
+    <button class="btn ghost" onclick="go('home')">← Назад</button>
+  </section>
+
+  <!-- ГЛАВНАЯ -->
+  <section id="s-home" class="hidden">
+    <div class="card"><div class="big">💞 Счётчик любви</div>
+      <div class="big gold" id="h-timer">…</div>
+      <div class="mut" id="h-names"></div>
+      <button class="btn ghost" id="h-profbtn" onclick="openProfile()">👤 Профиль партнёра →</button></div>
+    <div class="card"><div class="big">💋 Обнимашки</div>
+      <div id="h-tap">…</div>
+      <button class="btn" onclick="sendTap()">💋 Обнять!</button></div>
+    <div class="card"><div class="big">Настроение</div>
+      <div class="row"><div class="grow">Я: <b id="h-myme">—</b></div>
+                       <div class="grow">💜 Партнёр: <b id="h-pme">—</b></div></div>
+      <div class="moodrow" id="h-moods"></div>
+      <div id="h-hist" class="mut" style="margin-top:8px"></div></div>
+    <div class="card"><div class="big">📊 Наша статистика</div><div id="h-stats">…</div></div>
+    <div class="card"><div class="big">💡 Идея дня</div><div id="h-idea">…</div>
+      <div class="row"><button class="btn ghost grow" onclick="luckyHome()">🎲 Другая</button>
+        <button class="btn ghost grow" onclick="markIdeaDone()">✅ Сделали!</button></div></div>
+    <div class="card"><div class="big">❓ Сегодня</div><div id="h-daily">…</div>
+      <button class="btn ghost" onclick="go('daily')">Ответить →</button></div>
+    <div class="card"><div class="big">⏳ Ближайшее событие</div><div id="h-ev">—</div></div>
+    <button class="btn ghost" onclick="go('quiz')">🎮 Викторины →</button>
+  </section>
+
+  <!-- ВОПРОС -->
+  <section id="s-daily" class="hidden">
+    <div class="card"><div class="big">❓ Вопрос дня</div>
+      <p id="d-q" class="big gold"></p>
+      <div id="d-form"><input id="d-a" placeholder="Ваш ответ…">
+        <button class="btn" onclick="sendAnswer()">💌 Ответить</button></div>
+      <div id="d-out"></div></div>
+    <button class="btn ghost" onclick="go('quiz')">🎮 Викторины →</button>
+    <button class="btn ghost" onclick="go('packs')">📚 Темы вопросов →</button>
+  </section>
+
+  <!-- ТЕМЫ ВОПРОСОВ -->
+  <section id="s-packs" class="hidden">
+    <div class="card"><div class="big">📚 Темы вопросов</div>
+      <p class="mut">Отвечайте оба — ответ партнёра откроется, когда ответите вы.</p>
+      <div class="row" id="pk-modes"></div>
+      <div id="p-list"></div></div>
+    <div class="card hidden" id="p-detail"><div class="big" id="p-title"></div>
+      <div class="mut" id="p-desc"></div><div id="p-qs"></div>
+      <button class="btn ghost" onclick="showPackList()">← Все темы</button></div>
+  </section>
+
+  <!-- ВИКТОРИНЫ -->
+  <section id="s-quiz" class="hidden">
+    <div class="card"><div class="big">🎮 Викторины</div><div id="q-list"></div></div>
+    <div class="card hidden" id="q-detail"><div class="big" id="q-title"></div>
+      <div id="q-res"></div><div id="q-qs"></div>
+      <button class="btn ghost" onclick="showQuizList()">← Назад</button></div>
+  </section>
+
+  <!-- ИДЕИ -->
+  <section id="s-ideas" class="hidden">
+    <button class="btn" onclick="lucky()">🎲 Мне повезёт!</button>
+    <div class="card hidden" id="i-lucky"></div>
+    <div class="card"><div class="big">💡 Идеи свиданий</div>
+      <div class="row"><input id="i-new" class="grow" placeholder="Своя идея…">
+        <button class="btn" style="width:auto" onclick="addIdea()">＋</button></div>
+      <div id="i-list"></div></div>
+  </section>
+
+  <!-- ЖУРНАЛ -->
+  <section id="s-journal" class="hidden">
+    <div class="card"><div class="big">📖 Общий журнал</div>
+      <input id="j-t" placeholder="Заголовок момента">
+      <input id="j-x" placeholder="Что запомнилось?">
+      <input type="file" id="j-f" accept="image/*" onchange="previewPhoto(this)">
+      <img id="j-prev" class="hidden" style="width:100%;border-radius:12px;margin-top:6px">
+      <button class="btn" onclick="addJournal()">💾 Сохранить момент</button></div>
+    <div class="card">
+      <input id="j-q" placeholder="🔍 Поиск…" oninput="loadJournal()">
+      <div class="row" style="margin-top:6px">
+        <button class="btn ghost grow" id="jf-all" onclick="jFilter('all')">Все</button>
+        <button class="btn ghost grow" id="jf-me" onclick="jFilter('me')">Мои</button>
+        <button class="btn ghost grow" id="jf-p" onclick="jFilter('partner')">Партнёра</button>
+        <button class="btn ghost grow" id="jf-f" onclick="jFilter('fav')">⭐</button>
+      </div></div>
+    <div id="j-list"></div>
+  </section>
+
+  <!-- СОБЫТИЯ -->
+  <section id="s-events" class="hidden">
+    <div class="card"><div class="big">⏳ Обратный отсчёт</div>
+      <input id="e-t" placeholder="Событие (годовщина, поездка…)">
+      <div class="moodrow" id="e-icons"></div>
+      <div class="row"><input id="e-d" type="date" class="grow">
+        <label class="mut"><input type="checkbox" id="e-r"> 🔁 каждый год</label></div>
+      <button class="btn" onclick="addEvent()">➕ Добавить</button></div>
+    <div id="e-list"></div>
+  </section>
+</main>
+
+<nav id="tabs" class="hidden">
+  <button data-s="home" onclick="go('home')"><span class="i">💑</span>Главная</button>
+  <button data-s="daily" onclick="go('daily')"><span class="i">❓</span>Вопрос</button>
+  <button data-s="packs" onclick="go('packs')"><span class="i">📚</span>Темы</button>
+  <button data-s="ideas" onclick="go('ideas')"><span class="i">💡</span>Идеи</button>
+  <button data-s="journal" onclick="go('journal')"><span class="i">📖</span>Журнал</button>
+  <button data-s="events" onclick="go('events')"><span class="i">⏳</span>События</button>
+</nav>
+
+<script>
+let uid = +(localStorage.getItem("cj_uid") || 0);
+async function req(m, p, b){
+  const r = await fetch(p, {method:m, headers:{"Content-Type":"application/json"},
+                            body: b ? JSON.stringify(b) : undefined});
+  let j = null;
+  try{ j = await r.json(); }catch(e){}
+  if(!r.ok){
+    const msg = (j && j.detail) || ("HTTP " + r.status);
+    if(msg === "user not found"){
+      showPairScreen();
+      throw new Error("Сессия устарела — войдите заново 🙂");
+    }
+    if(m !== "GET") alert("Ошибка: " + msg);
+    throw new Error(msg);
+  }
+  return j;
+}
+function go(s){
+  document.getElementById("pairmenu").classList.add("hidden");
+  document.querySelectorAll("main section").forEach(e => e.classList.add("hidden"));
+  document.getElementById("s-" + s).classList.remove("hidden");
+  document.querySelectorAll("nav button").forEach(b =>
+    b.classList.toggle("on", b.dataset.s === s));
+  ({home:loadHome, daily:loadDaily, quiz:showQuizList, packs:showPackList, ideas:loadIdeas,
+    journal:loadJournal, events:loadEvents, theme:renderThemes}[s] || (()=>{}))();
+  window.scrollTo(0,0);
+}
+function enter(){ document.getElementById("tabs").classList.remove("hidden");
+  document.getElementById("pairmenu-btn").classList.remove("hidden");
+  connectWS(); go("home"); }
+function showPairScreen(){
+  uid = 0; localStorage.removeItem("cj_uid");
+  try{ ws && ws.close(); }catch(e){}
+  document.getElementById("tabs").classList.add("hidden");
+  document.getElementById("pairmenu-btn").classList.add("hidden");
+  document.getElementById("pairmenu").classList.add("hidden");
+  document.getElementById("p-code").innerHTML = "";
+  go("pair");
+}
+
+/* реалтайм: WebSocket */
+let ws = null, wsTimer = null;
+function connectWS(){
+  if(!uid) return;
+  clearTimeout(wsTimer);
+  try{
+    ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") +
+                       location.host + `/ws?user_id=${uid}`);
+  }catch(e){ wsTimer = setTimeout(connectWS, 3000); return; }
+  ws.onmessage = ev => {
+    let m; try{ m = JSON.parse(ev.data); }catch(e){ return; }
+    if(m.type === "reload") reloadVisible();
+    if(m.type === "presence" && m.user_id === window._pid) setOnline(m.online);
+  };
+  ws.onclose = () => { setOnline(false); wsTimer = setTimeout(connectWS, 3000); };
+  ws.onerror = () => { try{ ws.close(); }catch(e){} };
+}
+function setOnline(on){
+  const el = document.getElementById("h-online");
+  if(el) el.textContent = on ? "🟢 в сети" : "⚪";
+}
+setInterval(() => {
+  try{ if(ws && ws.readyState === 1) ws.send("ping"); }catch(e){}
+}, 25000);
+function reloadVisible(){
+  const vis = [...document.querySelectorAll("main section")]
+    .find(s => !s.classList.contains("hidden"));
+  if(!vis || !uid) return;
+  const id = vis.id.replace("s-", "");
+  if(id === "pair") return;
+  ({home:loadHome, daily:loadDaily, quiz:showQuizList, packs:showPackList,
+    ideas:loadIdeas, journal:loadJournal, events:loadEvents}[id] || (()=>{}))();
+  loadTap().catch(()=>{});
+}
+function toggleMenu(e){
+  e.stopPropagation();
+  const m = document.getElementById("pairmenu");
+  m.classList.toggle("hidden");
+  if(!m.classList.contains("hidden")) updateMenuStatus();
+}
+async function updateMenuStatus(){
+  try{
+    const m = await req("GET", `/me?user_id=${uid}`);
+    document.getElementById("pm-status").textContent =
+      m.partner ? `В паре с: ${m.partner.name} 💞` : "Вы без пары";
+  }catch(e){ document.getElementById("pm-status").textContent = ""; }
+}
+function switchPair(){ showPairScreen(); }
+async function leavePair(){
+  if(!confirm("Удалить пару? Вы оба станете одиночками (ответы сохранятся).")) return;
+  try{ await req("DELETE", `/pair?user_id=${uid}`); }catch(e){}
+  showPairScreen();
+}
+document.addEventListener("click", () =>
+  document.getElementById("pairmenu").classList.add("hidden"));
+
+/* темы оформления */
+const THEMES = {
+  dark:{name:"Тёмная 🌙", prev:["#221b3a","#ff5d8f"], light:false,
+    props:{"--bg":"#141021","--card":"#221b3a","--card2":"#2b2350","--fg":"#f4efff","--mut":"#a79fd1","--pink":"#ff5d8f","--grad2":"#b5179e","--glow":"#3b2566"}},
+  light:{name:"Светлая ☀️", prev:["#ffffff","#d81b60"], light:true,
+    props:{"--bg":"#eef0f8","--card":"#ffffff","--card2":"#f7f5ff","--fg":"#23204a","--mut":"#6f6a94","--pink":"#d81b60","--grad2":"#7b1fa2","--glow":"#e8e4f7"}},
+  pink:{name:"Розовая 💖", prev:["#3d1333","#ff5d8f"], light:false,
+    props:{"--bg":"#26091f","--card":"#3d1333","--card2":"#4c1840","--fg":"#ffeef5","--mut":"#d9a7c0","--pink":"#ff5d8f","--grad2":"#b5179e","--glow":"#6b1e54"}},
+  ocean:{name:"Океан 🌊", prev:["#0e2a44","#38bdf8"], light:false,
+    props:{"--bg":"#071825","--card":"#0e2a44","--card2":"#123652","--fg":"#eaf6ff","--mut":"#8fb4d6","--pink":"#38bdf8","--grad2":"#1d4ed8","--glow":"#0e3a5c"}},
+  forest:{name:"Лес 🌲", prev:["#14301f","#4ade80"], light:false,
+    props:{"--bg":"#0c1a11","--card":"#14301f","--card2":"#1a3d27","--fg":"#edfff3","--mut":"#93c4a4","--pink":"#4ade80","--grad2":"#15803d","--glow":"#14532d"}}
+};
+const ACCENTS = [{n:"💖",p:"#ff5d8f",g:"#b5179e"},{n:"💙",p:"#38bdf8",g:"#1d4ed8"},
+  {n:"💛",p:"#f59e0b",g:"#b45309"},{n:"💚",p:"#22c55e",g:"#15803d"},{n:"💜",p:"#a78bfa",g:"#6d28d9"}];
+function applyTheme(k){
+  const t = THEMES[k] || THEMES.dark;
+  document.body.dataset.theme = t.light ? "light" : "";
+  for(const key in t.props) document.body.style.setProperty(key, t.props[key]);
+  const ai = +(localStorage.getItem("cj_accent") ?? -1);
+  if(ai >= 0 && ACCENTS[ai]){
+    document.body.style.setProperty("--pink", ACCENTS[ai].p);
+    document.body.style.setProperty("--grad2", ACCENTS[ai].g);
+  }
+  localStorage.setItem("cj_theme", k in THEMES ? k : "dark");
+  renderThemes();
+}
+function pickTheme(k){ applyTheme(k); }
+function pickAccent(i){
+  localStorage.setItem("cj_accent", i);
+  applyTheme(localStorage.getItem("cj_theme") || "dark");
+}
+function renderThemes(){
+  const cur = localStorage.getItem("cj_theme") || "dark";
+  const ai = +(localStorage.getItem("cj_accent") ?? -1);
+  const tl = document.getElementById("th-list");
+  if(tl) tl.innerHTML = Object.entries(THEMES).map(([k,t]) =>
+    `<button class="opt" onclick="pickTheme('${k}')"><span style="display:inline-block;width:46px;height:30px;border-radius:8px;vertical-align:middle;background:linear-gradient(135deg,${t.prev[0]},${t.prev[1]})"></span> <b>${t.name}</b> ${k===cur?"✅":""}</button>`).join("");
+  const ta = document.getElementById("th-acc");
+  if(ta) ta.innerHTML = ACCENTS.map((a,i) =>
+    `<div class="mood" style="${i===ai?"border:2px solid var(--pink)":""}" onclick="pickAccent(${i})">${a.n}</div>`).join("");
+}
+applyTheme(localStorage.getItem("cj_theme") || "dark");
+
+/* пара */
+function previewAvatar(input){
+  const img = document.getElementById("p-avprev");
+  if(input.files && input.files[0]){
+    img.src = URL.createObjectURL(input.files[0]);
+    img.classList.remove("hidden");
+  } else img.classList.add("hidden");
+}
+async function pairAvatar(){
+  const f = document.getElementById("p-av");
+  if(!(f.files && f.files[0])) return "";
+  const fd = new FormData();
+  fd.append("file", f.files[0]);
+  const r = await fetch("/photos", {method:"POST", body:fd});
+  const j = await r.json();
+  if(!r.ok) throw new Error((j && j.detail) || r.status);
+  return j.url;
+}
+function pairBirth(){
+  const b = document.getElementById("p-birth").value;
+  if(!b) throw new Error("Укажите дату рождения");
+  return b;
+}
+async function createPair(){
+  const name = document.getElementById("p-name").value.trim();
+  if(!name) return alert("Введите имя");
+  try{
+    const birth = pairBirth();
+    const avatar = await pairAvatar();
+    const r = await req("POST","/pair",{name, birth, avatar});
+    uid = r.user_id; localStorage.setItem("cj_uid", uid);
+    document.getElementById("p-code").innerHTML =
+      `<div class="code">${r.pair_code}</div>
+       <p class="mut">Покажите код партнёру. Вы уже внутри 👇</p>
+       <button class="btn" onclick="enter()">Войти 💞</button>`;
+  }catch(e){ alert(e.message); }
+}
+async function joinPair(){
+  const name = document.getElementById("p-name").value.trim();
+  const code = document.getElementById("p-join").value.trim().toUpperCase();
+  if(!name || !code) return alert("Нужно имя и код");
+  try{
+    const birth = pairBirth();
+    const avatar = await pairAvatar();
+    const r = await req("POST","/pair/join",{name, code, birth, avatar});
+    uid = r.user_id; localStorage.setItem("cj_uid", uid); enter();
+  }catch(e){ alert(e.message); }
+}
+
+/* профиль партнёра */
+async function openProfile(){
+  const p = await req("GET", `/partner?user_id=${uid}`);
+  document.querySelectorAll("main section").forEach(e => e.classList.add("hidden"));
+  document.getElementById("s-profile").classList.remove("hidden");
+  const av = document.getElementById("pf-av");
+  if(p.avatar){ av.src = p.avatar; av.classList.remove("hidden"); }
+  else av.classList.add("hidden");
+  document.getElementById("pf-name").textContent = p.name;
+  document.getElementById("pf-age").textContent =
+    (p.age != null ? p.age + " лет" : "") +
+    (p.birth ? ` • 🎂 ${p.birth}` : "") +
+    ` • вместе ${p.days_together} дн.`;
+  document.getElementById("pf-info").innerHTML =
+    `Настроение: <b>${(p.latest_mood || {}).mood || "—"}</b><br>` +
+    `💬 ответов: <b>${p.answers}</b> • 😊 настроений: <b>${p.moods}</b><br>` +
+    `📖 моментов: <b>${p.moments}</b> • 💋 обнимашек: <b>${p.taps}</b>`;
+  window.scrollTo(0,0);
+}
+
+/* главная */
+let loveSince = null, homeIdea = null;
+function rel(ts){
+  if(!ts) return "пока тихо…";
+  const s = Math.max(0, (Date.now() - new Date(ts).getTime()) / 1000);
+  if(s < 60) return "только что ✨";
+  if(s < 3600) return Math.floor(s/60) + " мин назад";
+  if(s < 86400) return Math.floor(s/3600) + " ч назад";
+  return Math.floor(s/86400) + " дн назад";
+}
+function tickTimer(){
+  if(!loveSince) return;
+  let s = Math.max(0, Math.floor((Date.now() - loveSince) / 1000));
+  const d = Math.floor(s/86400); s %= 86400;
+  const h = String(Math.floor(s/3600)).padStart(2,"0");
+  const m = String(Math.floor(s%3600/60)).padStart(2,"0");
+  const ss = String(s%60).padStart(2,"0");
+  document.getElementById("h-timer").textContent = `${d} дн. ${h}:${m}:${ss} 💞`;
+}
+setInterval(tickTimer, 1000);
+setInterval(() => {
+  if(uid && document.getElementById("s-home").classList.contains("hidden") === false) loadTap();
+}, 15000);
+async function loadTap(){
+  const t = await req("GET", `/tap?user_id=${uid}`);
+  document.getElementById("h-tap").innerHTML =
+    `Партнёр обнимал: <b>${rel(t.partner_last)}</b><br>` +
+    `<span class="mut">Всего обнимашек: ${t.total} 💋</span>`;
+}
+async function sendTap(){
+  await req("POST","/tap",{user_id:uid}); loadTap();
+}
+async function loadHome(){
+  const m = await req("GET", `/me?user_id=${uid}`);
+  loveSince = new Date(m.together_since + "T00:00:00").getTime();
+  tickTimer();
+  document.getElementById("h-names").innerHTML =
+    `Вы: <b>${m.name}</b>` + (m.partner
+      ? `   •   Партнёр: <b>${m.partner.name}</b> <span id="h-online">⚪</span> 🔥 серия ${m.streak}`
+      : "   •   ждём партнёра…");
+  window._pid = m.partner ? m.partner.id : 0;
+  document.getElementById("h-myme").textContent = (m.my_mood||{}).mood || "—";
+  document.getElementById("h-pme").textContent = (m.partner_mood||{}).mood || "—";
+  document.getElementById("h-moods").innerHTML =
+    ["😍","🥰","😊","😢","😡"].map(e =>
+      `<div class="mood" onclick="setMood('${e}')">${e}</div>`).join("");
+  loadTap();
+  const feed = await req("GET", `/moods?user_id=${uid}`);
+  document.getElementById("h-hist").innerHTML =
+    feed.slice(0,7).map(x => `${x.mood}<small>${x.author.split("")[0]}</small>`).join("  ") ||
+    "история пуста";
+  const st = await req("GET", `/stats?user_id=${uid}`);
+  document.getElementById("h-stats").innerHTML =
+    `💬 ответов: <b>${st.answers}</b> • 😊 настроений: <b>${st.moods}</b> • 📖 моментов: <b>${st.moments}</b>` +
+    (st.avg_compatibility == null ? `<br><span class="mut">Пройдите викторину вдвоём — увидите % совместимости</span>`
+      : `<br>💜 Средняя совместимость: <b class="gold">${st.avg_compatibility}%</b> (${st.quizzes_together} викт.)`);
+  await luckyHomeIfEmpty();
+  const d = await req("GET", `/daily?user_id=${uid}`);
+  document.getElementById("h-daily").innerHTML =
+    `<b>${d.question.text}</b><br>` +
+    (d.my_answer ? `<span class="green">Вы ответили ✓</span>` : `<span class="gold">Ждёт ваш ответ!</span>`) +
+    (d.partner_answer ? ` • 💜 партнёр тоже ответил` : "");
+  const ev = await req("GET", `/events?user_id=${uid}`);
+  const fut = ev.filter(e => e.days_left >= 0).sort((a,b) => a.days_left - b.days_left)[0];
+  document.getElementById("h-ev").innerHTML = fut
+    ? `<b>${fut.title}</b> — через ${fut.days_left} дн. (${fut.date})` : "— добавьте событие!";
+}
+async function luckyHomeIfEmpty(){
+  if(homeIdea) return;
+  await luckyHome();
+}
+async function luckyHome(){
+  try{
+    homeIdea = await req("GET","/idea/random");
+    document.getElementById("h-idea").innerHTML =
+      `<b class="gold">${homeIdea.title}</b><br><span class="mut">${homeIdea.category} • ${homeIdea.budget}</span>`;
+  }catch(e){ document.getElementById("h-idea").textContent = "Все идеи выполнены! 🎉"; homeIdea = null; }
+}
+async function markIdeaDone(){
+  if(!homeIdea) return;
+  await fetch(`/idea/${homeIdea.id}/done?done=true`, {method:"POST"});
+  luckyHome();
+}
+async function setMood(e){ await req("POST","/mood",{user_id:uid, mood:e}); loadHome(); }
+
+/* вопрос дня */
+async function loadDaily(){
+  const d = await req("GET", `/daily?user_id=${uid}`);
+  document.getElementById("d-q").textContent = d.question.text;
+  document.getElementById("d-form").classList.toggle("hidden", !!d.my_answer);
+  document.getElementById("d-out").innerHTML =
+    (d.my_answer ? `<div class="item">Вы: <b>${d.my_answer}</b></div>` : "") +
+    (d.partner_answer ? `<div class="item">💜 Партнёр: <b>${d.partner_answer}</b></div>`
+      : (d.my_answer ? `<p class="mut">Партнёр ещё отвечает…</p>` : ""));
+}
+async function sendAnswer(){
+  const t = document.getElementById("d-a").value.trim();
+  if(!t) return;
+  await req("POST","/daily/answer",{user_id:uid, text:t});
+  document.getElementById("d-a").value = ""; loadDaily();
+}
+
+/* викторины */
+async function showQuizList(){
+  document.getElementById("q-detail").classList.add("hidden");
+  const l = await req("GET","/quizzes");
+  document.getElementById("q-list").innerHTML = l.map(q =>
+    `<button class="opt" onclick="openQuiz(${q.id})"><b>${q.title}</b> · ${q.questions} вопр.</button>`).join("");
+}
+async function openQuiz(id){
+  const q = await req("GET", `/quiz/${id}?user_id=${uid}`);
+  document.getElementById("q-detail").classList.remove("hidden");
+  document.getElementById("q-title").textContent = q.title;
+  try{
+    const r = await req("GET", `/quiz/${id}/result?user_id=${uid}`);
+    document.getElementById("q-res").innerHTML = r.compatibility == null
+      ? `<p class="mut">Ответьте оба — увидите % совместимости</p>`
+      : `<div class="ring" style="--p:${r.compatibility}%"><span>${r.compatibility}%</span></div>
+         <p class="mut">Вместе отвечено: ${r.answered_together}/${r.total}</p>`;
+  }catch(e){ document.getElementById("q-res").innerHTML = `<p class="mut">Добавьте партнёра!</p>`; }
+  document.getElementById("q-qs").innerHTML = q.questions.map(qq =>
+    `<div class="item"><b>${qq.text}</b> ${qq.partner_answered ? "💜" : ""}` +
+    qq.options.map((o,i) =>
+      `<button class="opt${qq.my_option===i?" sel":""}" onclick="ansQuiz(${id},${qq.id},${i})">${o}</button>`).join("") +
+    `</div>`).join("");
+}
+async function ansQuiz(qid, qqid, opt){
+  await req("POST", `/quiz/${qid}/answer`, {user_id:uid, qid:qqid, option:opt});
+  openQuiz(qid);
+}
+
+/* темы вопросов: режимы */
+let pkMode = "short";
+const MODES = [["short","✏️ Короткие"],["long","📝 Длинные"],["photo","📷 Фото"],["choice","⚡ То или это"]];
+async function showPackList(){
+  document.getElementById("p-detail").classList.add("hidden");
+  document.getElementById("pk-modes").innerHTML = MODES.map(([k,n]) =>
+    `<button class="btn${k===pkMode?"":" ghost"} grow" onclick="setPkMode('${k}')">${n}</button>`).join("");
+  if(pkMode === "choice"){ await showChoiceList(); return; }
+  const l = await req("GET", `/packs?user_id=${uid}&kind=${pkMode}`);
+  document.getElementById("p-list").innerHTML = l.map(p =>
+    `<button class="opt" onclick="openPack(${p.id})"><b>${p.title}</b><br>
+     <span class="mut">${p.description} · ${p.answered_by_me}/${p.total} · вместе ${p.answered_together}</span></button>`).join("") ||
+    `<p class="mut">Пока пусто</p>`;
+}
+function setPkMode(k){ pkMode = k; showPackList(); }
+async function showChoiceList(){
+  const l = await req("GET","/quizzes");
+  let html = "";
+  for(const q of l){
+    let sub = "";
+    try{
+      const r = await req("GET", `/quiz/${q.id}/result?user_id=${uid}`);
+      sub = r.compatibility == null
+        ? `Отвечено вместе: ${r.answered_together}/${r.total}` : `💜 Совместимость ${r.compatibility}%`;
+    }catch(e){ sub = "Викторина доступна"; }
+    html += `<button class="opt" onclick="go('quiz');openQuiz(${q.id})"><b>⚡ ${q.title}</b><br><span class="mut">${sub}</span></button>`;
+  }
+  document.getElementById("p-list").innerHTML = html;
+}
+async function openPack(pid){
+  const p = await req("GET", `/pack/${pid}?user_id=${uid}`);
+  document.getElementById("p-detail").classList.remove("hidden");
+  document.getElementById("p-title").textContent = p.title;
+  document.getElementById("p-desc").textContent = p.description;
+  document.getElementById("p-qs").innerHTML = p.questions.map(q =>
+    `<div class="item" id="pq-${q.id}"><b>${q.text}</b>` +
+    (q.my_answer ? `<br>Вы: <b>${q.my_answer}</b>` +
+      (q.partner_answer ? `<br>💜 Партнёр: <b>${q.partner_answer}</b>`
+        : `<br><span class="mut">Партнёр ещё отвечает…</span>`)
+      : `<div class="row"><input id="pa-${q.id}" class="grow" placeholder="Ваш ответ…">
+         <button class="btn" style="width:auto" onclick="ansPack(${pid},${q.id})">💌</button></div>`) +
+    `</div>`).join("");
+  document.getElementById("p-detail").scrollIntoView();
+}
+async function ansPack(pid, qid){
+  const t = document.getElementById(`pa-${qid}`).value.trim();
+  if(!t) return;
+  await req("POST", `/pack/${pid}/answer`, {user_id:uid, qid, text:t});
+  openPack(pid);
+}
+
+/* идеи */
+async function loadIdeas(){
+  const l = await req("GET","/ideas");
+  document.getElementById("i-list").innerHTML = l.map(i =>
+    `<div class="item row"><div class="grow"><b>${i.title}</b><br>
+     <span class="mut">${i.category} • ${i.budget}</span></div>
+     <span class="chk" onclick="doneIdea(${i.id},${i.done?0:1})">${i.done?"✅":"🤍"}</span></div>`).join("");
+}
+async function lucky(){
+  const i = await req("GET","/idea/random");
+  const el = document.getElementById("i-lucky");
+  el.classList.remove("hidden");
+  el.innerHTML = `<div class="big gold">🎲 ${i.title}</div><div class="mut">${i.category} • ${i.budget}</div>`;
+}
+async function addIdea(){
+  const t = document.getElementById("i-new").value.trim();
+  if(!t) return;
+  await req("POST","/ideas",{title:t});
+  document.getElementById("i-new").value = ""; loadIdeas();
+}
+async function doneIdea(id, d){
+  await fetch(`/idea/${id}/done?done=${d}`, {method:"POST"}); loadIdeas();
+}
+
+/* журнал */
+let jAuthor = "all", jFav = false;
+function jFilter(f){
+  if(f === "fav"){ jFav = !jFav; }
+  else { jAuthor = f; }
+  ["jf-all","jf-me","jf-p","jf-f"].forEach(id =>
+    document.getElementById(id).style.border = "none");
+  const on = f === "fav" ? (jFav ? "jf-f" : null)
+    : {all:"jf-all", me:"jf-me", partner:"jf-p"}[jAuthor];
+  if(on) document.getElementById(on).style.border = "2px solid var(--pink)";
+  loadJournal();
+}
+async function loadJournal(){
+  const q = document.getElementById("j-q").value;
+  const l = await req("GET", `/journal?user_id=${uid}&q=${encodeURIComponent(q)}&author=${jAuthor}${jFav ? "&fav=true" : ""}`);
+  document.getElementById("j-list").innerHTML = l.map(j =>
+    `<div class="item"><b>${j.fav ? "⭐ " : ""}${j.title}</b><br>${j.text}<br>
+     ${j.photo ? `<img src="${j.photo}" style="width:100%;border-radius:12px;margin:6px 0" loading="lazy">` : ""}
+     <span class="mut">${j.author} • ${j.ts.slice(0,10)}</span>
+     <div class="row" style="margin-top:6px">
+       <button class="btn ghost grow" onclick="likeJournal(${j.id})">${j.liked_by_me ? "❤️" : "🤍"} ${j.likes}</button>
+       <button class="btn ghost grow" onclick="favJournal(${j.id})">${j.fav ? "⭐" : "☆"}</button>
+       ${j.user_id === uid ? `<button class="btn ghost grow" onclick="delJournal(${j.id})">🗑</button>` : ""}
+     </div></div>`).join("") || `<p class="mut">Пока пусто</p>`;
+}
+function previewPhoto(input){
+  const img = document.getElementById("j-prev");
+  if(input.files && input.files[0]){
+    img.src = URL.createObjectURL(input.files[0]);
+    img.classList.remove("hidden");
+  } else img.classList.add("hidden");
+}
+async function uploadPhoto(file){
+  const fd = new FormData();
+  fd.append("file", file);
+  const r = await fetch("/photos", {method:"POST", body:fd});
+  const j = await r.json();
+  if(!r.ok) throw new Error((j && j.detail) || r.status);
+  return j.url;
+}
+async function addJournal(){
+  const t = document.getElementById("j-t").value.trim();
+  if(!t) return alert("Нужен заголовок");
+  let photo = "";
+  const f = document.getElementById("j-f");
+  if(f.files && f.files[0]){
+    try{ photo = await uploadPhoto(f.files[0]); }
+    catch(e){ return alert("Фото не загрузилось: " + e.message); }
+  }
+  await req("POST","/journal",{user_id:uid, title:t,
+    text:document.getElementById("j-x").value, photo});
+  document.getElementById("j-t").value = "";
+  document.getElementById("j-x").value = "";
+  f.value = "";
+  document.getElementById("j-prev").classList.add("hidden");
+  loadJournal();
+}
+async function likeJournal(id){
+  await req("POST", `/journal/${id}/like`, {user_id:uid}); loadJournal();
+}
+async function favJournal(id){
+  await req("POST", `/journal/${id}/fav`, {user_id:uid}); loadJournal();
+}
+async function delJournal(id){
+  if(!confirm("Удалить запись?")) return;
+  await fetch(`/journal/${id}?user_id=${uid}`, {method:"DELETE"}); loadJournal();
+}
+
+/* события */
+let eIcon = "🎉";
+["🎉","🎂","💍","✈️","🏠","🎓","💼","❤️"].forEach(e => {
+  document.getElementById("e-icons").insertAdjacentHTML("beforeend",
+    `<div class="mood" data-ic="${e}" onclick="pickIcon('${e}')">${e}</div>`);
+});
+function pickIcon(e){
+  eIcon = e;
+  document.querySelectorAll("#e-icons .mood").forEach(el =>
+    el.style.border = el.dataset.ic === e ? "2px solid var(--pink)" : "1px solid #3d3170");
+}
+async function loadEvents(){
+  const l = await req("GET", `/events?user_id=${uid}`);
+  document.getElementById("e-list").innerHTML = l.map(e =>
+    `<div class="item"><div class="row"><div class="grow"><b>${e.icon} ${e.title}</b> (${e.date})<br>` +
+    (e.days_left >= 0 ? `<span class="gold">⏳ через ${e.days_left} дн.</span>`
+                      : `<span class="mut">🕰 было ${-e.days_left} дн. назад</span>`) +
+    (e.repeat ? ` <span class="mut">🔁</span>` : "") +
+    `</div><span class="chk" onclick="delEvent(${e.id})">✖️</span></div></div>`).join("");
+}
+async function addEvent(){
+  const t = document.getElementById("e-t").value.trim();
+  const d = document.getElementById("e-d").value;
+  if(!t || !d) return alert("Нужны название и дата");
+  await req("POST","/events",{user_id:uid, title:t, date:d,
+    icon:eIcon, repeat:document.getElementById("e-r").checked});
+  loadEvents();
+}
+async function delEvent(id){
+  if(!confirm("Удалить событие?")) return;
+  await fetch(`/events/${id}?user_id=${uid}`, {method:"DELETE"}); loadEvents();
+}
+
+if(uid) enter();
+
+/* PWA: service worker (на http://LAN работает оболочка, полная установка — по HTTPS) */
+if("serviceWorker" in navigator){
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
+  });
+}
+</script>
+</body>
+</html>

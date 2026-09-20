@@ -1,0 +1,8 @@
+# Render.com — запасной вариант (бесплатно, но без постоянного диска:
+# при перезапуске база и фото сбросятся; для постоянного хранения нужен Fly.io)
+services:
+  - type: web
+    name: couplejoy
+    runtime: docker
+    plan: free
+    healthCheckPath: /quizzes

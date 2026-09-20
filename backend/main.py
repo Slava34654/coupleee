@@ -1,0 +1,1109 @@
+"""CoupleJoy-аналог: Python-бэкенд (FastAPI + SQLite).
+
+Запуск:
+    pip install -r requirements.txt
+    uvicorn main:app --reload --port 8000
+Документация: http://127.0.0.1:8000/docs
+"""
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, UploadFile, File
+from fastapi.responses import FileResponse
+from pydantic import BaseModel
+from typing import Optional
+from typing import Optional, List
+import sqlite3
+import datetime
+import json
+import os
+import random
+import string
+
+DB = os.environ.get("COUPLE_DB", os.path.join(os.path.dirname(os.path.abspath(__file__)), "couple.db"))
+PHOTO_DIR = os.environ.get("PHOTO_DIR", os.path.join(os.path.dirname(os.path.abspath(__file__)), "photos"))
+
+app = FastAPI(title="CoupleJoy Analog API", version="1.0")
+
+# ---------------- seed-данные ----------------
+QUESTIONS = [
+    "Какое ваше самое тёплое общее воспоминание?",
+    "Идеальное свидание мечты — опишите его.",
+    "Чему вы научились друг у друга за последнее время?",
+    "Какой маленький жест партнёра радует вас больше всего?",
+    "Куда бы вы хотели поехать вместе в первую очередь?",
+    "Какая песня ассоциируется у вас с вашими отношениями?",
+    "О чём вы мечтаете через 5 лет — вместе?",
+    "Какой поступок партнёра вас недавно тронул?",
+    "Что бы вы хотели чаще делать вместе?",
+    "За что вы благодарны партнёру сегодня?",
+    "Ваше любимое домашнее занятие вдвоём?",
+    "Какой сюрприз вы бы хотели устроить партнёру?",
+    "Что для вас значит «дом»?",
+    "Какая традиция могла бы стать вашей общей?",
+]
+
+QUIZZES = [
+    {"title": "Насколько вы совпадаете?",
+     "questions": [
+         {"text": "Идеальный вечер пятницы?",
+          "options": ["Кино дома", "Прогулка", "Ресторан", "Вечеринка с друзьями"]},
+         {"text": "Кто готовит завтрак?",
+          "options": ["Я", "Партнёр", "Вместе", "Заказываем"]},
+         {"text": "Отпуск мечты?",
+          "options": ["Море", "Горы", "Город", "Деревня"]},
+         {"text": "Фильм на вечер выбирает…",
+          "options": ["Я", "Партнёр", "По очереди", "Случайно"]},
+         {"text": "Утро выходного дня?",
+          "options": ["Спим долго", "Ранний подъём", "Спорт", "Бранч"]},
+     ]},
+    {"title": "Это или то? ⚡",
+     "questions": [
+         {"text": "Море или горы?", "options": ["Море", "Горы"]},
+         {"text": "Кошки или собаки?", "options": ["Кошки", "Собаки"]},
+         {"text": "Ты жаворонок или сова?", "options": ["Жаворонок", "Сова"]},
+         {"text": "Чай или кофе?", "options": ["Чай", "Кофе"]},
+         {"text": "Кино дома или кинотеатр?", "options": ["Дома", "Кинотеатр"]},
+         {"text": "На отдыхе: пляж или экскурсии?", "options": ["Пляж", "Экскурсии"]},
+         {"text": "Сладкое или солёное?", "options": ["Сладкое", "Солёное"]},
+         {"text": "Лето или зима?", "options": ["Лето", "Зима"]},
+     ]},
+]
+
+# Тематические паки вопросов со свободными ответами.
+# Ответ партнёра виден только когда ответили оба — как в вопросе дня.
+PACKS = [
+    {"title": "Глубокие разговоры 💬", "description": "Вопросы, которые сближают", "kind": "short",
+     "questions": [
+        "Чего ты боишься больше всего — и почему?",
+        "Какой момент в жизни сильнее всего тебя изменил?",
+        "Что бы ты сказал(а) себе 10 лет назад?",
+        "Когда ты в последний раз радовался(лась) до слёз?",
+        "Какая твоя самая большая гордость?",
+        "Что чаще всего тревожит тебя перед сном?",
+        "Кого ты считаешь своим главным учителем в жизни?",
+        "Что для тебя значит быть любимым(ой)?",
+        "О чём ты никогда никому не рассказывал(а)?",
+        "Что бы ты изменил(а) в своём прошлом, если бы мог(ла)?",
+     ]},
+    {"title": "Весёлые и нелепые 😂", "description": "Посмеяться вместе", "kind": "short",
+     "questions": [
+        "Какая у тебя самая нелепая привычка?",
+        "Самый смешной случай из твоего детства?",
+        "Если бы ты был(а) супергероем, какая была бы твоя бесполезная суперсила?",
+        "Какое блюдо у тебя никогда не получается?",
+        "Твоё самое странное сочетание еды?",
+        "Самый неловкий момент на свидании?",
+        "Если бы мы поменялись телами на день, что бы ты сделал(а) первым?",
+        "Какое прозвище тебе давали в школе?",
+        "Твой самый глупый страх?",
+        "Какая песня гарантированно поднимает тебе настроение?",
+     ]},
+    {"title": "Будущее и мечты 🔮", "description": "Помечтаем вместе", "kind": "short",
+     "questions": [
+        "Где ты видишь нас через 5 лет?",
+        "О каком доме ты мечтаешь?",
+        "Три страны, которые хочешь посетить вместе со мной?",
+        "Какая у тебя самая заветная мечта?",
+        "Кем ты хотел(а) стать в детстве — и что изменилось?",
+        "Какое общее хобби ты бы хотел(а) завести?",
+        "Что бы ты сделал(а) с миллионом, если бы мы выиграли его вместе?",
+        "Какой навык хочешь освоить в ближайший год?",
+        "Идеальный обычный вторник через 10 лет — опиши.",
+        "Что ты хочешь, чтобы люди говорили о нас?",
+     ]},
+    {"title": "Воспоминания 📸", "description": "Тёплое из прошлого", "kind": "short",
+     "questions": [
+        "Твоё самое раннее воспоминание?",
+        "Лучший день рождения в твоей жизни?",
+        "Самый счастливый день прошлого года?",
+        "Какое место из детства ты бы показал(а) мне?",
+        "Что ты подумал(а), когда мы впервые встретились?",
+        "Наш лучший совместный день — какой он?",
+        "Какая фотография для тебя самая ценная?",
+        "О чём напоминает твоя любимая песня из прошлого?",
+     ]},
+    {"title": "Романтика 💞", "description": "Про нежность", "kind": "short",
+     "questions": [
+        "Что для тебя идеальный романтический вечер?",
+        "Какие слова тебе приятнее всего слышать?",
+        "Твой язык любви: слова, время, подарки, забота или прикосновения?",
+        "Какой комплимент запомнился тебе на всю жизнь?",
+        "Что тебя больше всего привлекает во мне?",
+        "Маленький сюрприз, который всегда работает?",
+        "Что для тебя значит «скучать»?",
+        "Как ты понимаешь, что тебя любят?",
+     ]},
+    {"title": "Письма друг другу 💌", "description": "Длинные ответы от сердца", "kind": "long",
+     "questions": [
+        "Напиши письмо партнёру о том, за что ты его любишь.",
+        "Опиши ваш идеальный год вместе в деталях.",
+        "Расскажи историю вашего знакомства своими словами.",
+        "Напиши, каким ты видишь партнёра через 20 лет.",
+        "Опиши день, когда ты понял(а), что это — то самое.",
+        "Письмо в будущее: что скажешь нам через 10 лет?",
+     ]},
+    {"title": "Глубокие истории 📖", "description": "Расскажи подробно", "kind": "long",
+     "questions": [
+        "Расскажи о человеке, который сильнее всего на тебя повлиял.",
+        "Опиши самый трудный период жизни и как ты его прошёл.",
+        "Какое решение далось тебе тяжелее всего?",
+        "Расскажи о своей самой большой мечте подробно.",
+        "Опиши место, где ты чувствуешь себя счастливым.",
+        "Какой урок жизнь преподала тебе недавно?",
+     ]},
+    {"title": "Фотозадания 📷", "description": "Отвечай фотографией", "kind": "photo",
+     "questions": [
+        "Сфотографируй то, что напоминает тебе обо мне.",
+        "Твой вид из окна прямо сейчас.",
+        "Сфотографируй свой сегодняшний обед.",
+        "Что тебя сейчас окружает? Покажи!",
+        "Сфотографируй место, где ты чаще всего думаешь о нас.",
+        "Твоё отражение сегодня 😉",
+        "Покажи небо над тобой.",
+        "Сфотографируй то, что тебя сегодня порадовало.",
+     ]},
+    {"title": "Наши моменты 📸", "description": "Фото и подпись", "kind": "photo",
+     "questions": [
+        "Поделись любимым совместным фото.",
+        "Сфотографируй место вашего последнего свидания.",
+        "Покажи вещь, связанную с партнёром.",
+        "Сфотографируй свой самый уютный уголок.",
+        "Что приготовил(а) вкусного? Покажи!",
+        "Твой вечер прямо сейчас — одним кадром.",
+     ]},
+]
+
+IDEAS = [
+    ("Пикник в парке", "Активный отдых", "Бесплатно"),
+    ("Домашний кинотеатр с попкорном", "Дома", "Дёшево"),
+    ("Прогулка по незнакомому району", "Активный отдых", "Бесплатно"),
+    ("Совместная готовка нового блюда", "Дома", "Дёшево"),
+    ("Настольные игры вдвоём", "Дома", "Бесплатно"),
+    ("Фотосессия друг друга", "Творчество", "Бесплатно"),
+    ("Ужин в новом ресторане", "Еда", "Дорого"),
+    ("Поход в музей/выставку", "Культура", "Дёшево"),
+    ("Велопрогулка за город", "Активный отдых", "Дёшево"),
+    ("СПА-вечер дома", "Дома", "Дёшево"),
+    ("Караоке-вечер", "Дома", "Бесплатно"),
+    ("Поездка на выходные", "Путешествие", "Дорого"),
+]
+
+# ---------------- БД ----------------
+def db():
+    con = sqlite3.connect(DB)
+    con.row_factory = sqlite3.Row
+    return con
+
+def init_db():
+    con = db()
+    c = con.cursor()
+    c.executescript("""
+    CREATE TABLE IF NOT EXISTS users(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        pair_code TEXT UNIQUE NOT NULL,
+        partner_id INTEGER,
+        together_since TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS moods(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        mood TEXT NOT NULL,
+        note TEXT DEFAULT '',
+        ts TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS answers(
+        user_id INTEGER NOT NULL,
+        qdate TEXT NOT NULL,
+        qindex INTEGER NOT NULL,
+        text TEXT NOT NULL,
+        ts TEXT NOT NULL,
+        PRIMARY KEY(user_id, qdate, qindex));
+    CREATE TABLE IF NOT EXISTS quizzes(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS quiz_q(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        quiz_id INTEGER NOT NULL, text TEXT NOT NULL, options TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS quiz_a(
+        user_id INTEGER NOT NULL, quiz_id INTEGER NOT NULL,
+        qid INTEGER NOT NULL, option INTEGER NOT NULL,
+        PRIMARY KEY(user_id, quiz_id, qid));
+    CREATE TABLE IF NOT EXISTS ideas(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL, category TEXT DEFAULT '',
+        budget TEXT DEFAULT '', done INTEGER DEFAULT 0);
+    CREATE TABLE IF NOT EXISTS journal(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL, title TEXT NOT NULL,
+        text TEXT DEFAULT '', ts TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS events(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL, title TEXT NOT NULL, date TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS packs(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL, description TEXT DEFAULT '');
+    CREATE TABLE IF NOT EXISTS pack_q(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        pack_id INTEGER NOT NULL, text TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS pack_a(
+        user_id INTEGER NOT NULL, pack_id INTEGER NOT NULL,
+        qid INTEGER NOT NULL, text TEXT NOT NULL, ts TEXT NOT NULL,
+        PRIMARY KEY(user_id, pack_id, qid));
+    CREATE TABLE IF NOT EXISTS taps(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL, ts TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS journal_likes(
+        entry_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
+        PRIMARY KEY(entry_id, user_id));
+    """)
+    # мягкие миграции для старых БД
+    cols_j = [r["name"] for r in c.execute("PRAGMA table_info(journal)").fetchall()]
+    if "fav" not in cols_j:
+        c.execute("ALTER TABLE journal ADD COLUMN fav INTEGER DEFAULT 0")
+    if "photo" not in cols_j:
+        c.execute("ALTER TABLE journal ADD COLUMN photo TEXT DEFAULT ''")
+    cols_e = [r["name"] for r in c.execute("PRAGMA table_info(events)").fetchall()]
+    if "icon" not in cols_e:
+        c.execute("ALTER TABLE events ADD COLUMN icon TEXT DEFAULT ''")
+    if "repeat" not in cols_e:
+        c.execute("ALTER TABLE events ADD COLUMN repeat INTEGER DEFAULT 0")
+    cols_u = [r["name"] for r in c.execute("PRAGMA table_info(users)").fetchall()]
+    if "birth" not in cols_u:
+        c.execute("ALTER TABLE users ADD COLUMN birth TEXT DEFAULT ''")
+    if "avatar" not in cols_u:
+        c.execute("ALTER TABLE users ADD COLUMN avatar TEXT DEFAULT ''")
+    for q in QUIZZES:
+        row = c.execute("SELECT id FROM quizzes WHERE title=?", (q["title"],)).fetchone()
+        if row:
+            continue
+        qid = c.execute("INSERT INTO quizzes(title) VALUES(?)",
+                        (q["title"],)).lastrowid
+        for qq in q["questions"]:
+            c.execute("INSERT INTO quiz_q(quiz_id,text,options) VALUES(?,?,?)",
+                      (qid, qq["text"], json.dumps(qq["options"], ensure_ascii=False)))
+    if c.execute("SELECT COUNT(*) n FROM ideas").fetchone()["n"] == 0:
+        c.executemany("INSERT INTO ideas(title,category,budget) VALUES(?,?,?)", IDEAS)
+    cols_p = [r["name"] for r in c.execute("PRAGMA table_info(packs)").fetchall()]
+    if "kind" not in cols_p:
+        c.execute("ALTER TABLE packs ADD COLUMN kind TEXT DEFAULT 'short'")
+    cols_pa = [r["name"] for r in c.execute("PRAGMA table_info(pack_a)").fetchall()]
+    if "photo" not in cols_pa:
+        c.execute("ALTER TABLE pack_a ADD COLUMN photo TEXT DEFAULT ''")
+    for p in PACKS:
+        row = c.execute("SELECT id FROM packs WHERE title=?", (p["title"],)).fetchone()
+        if row:
+            c.execute("UPDATE packs SET kind=? WHERE id=?", (p["kind"], row["id"]))
+            continue
+        pid = c.execute("INSERT INTO packs(title,description,kind) VALUES(?,?,?)",
+                        (p["title"], p["description"], p["kind"])).lastrowid
+        c.executemany("INSERT INTO pack_q(pack_id,text) VALUES(?,?)",
+                      [(pid, t) for t in p["questions"]])
+    con.commit()
+    con.close()
+
+@app.on_event("startup")
+def startup():
+    init_db()
+
+@app.get("/", include_in_schema=False)
+def webapp():
+    """Мобильное веб-приложение — открыть с телефона по IP компьютера."""
+    return FileResponse(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                     "web", "index.html"))
+
+WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
+
+@app.get("/manifest.webmanifest", include_in_schema=False)
+def pwa_manifest():
+    return FileResponse(os.path.join(WEB_DIR, "manifest.webmanifest"),
+                        media_type="application/manifest+json")
+
+@app.get("/sw.js", include_in_schema=False)
+def pwa_sw():
+    return FileResponse(os.path.join(WEB_DIR, "sw.js"),
+                        media_type="application/javascript")
+
+@app.get("/icons/{name}", include_in_schema=False)
+def pwa_icon(name: str):
+    if name not in ("icon-192.png", "icon-512.png",
+                    "maskable-512.png", "apple-180.png"):
+        raise HTTPException(404, "not found")
+    return FileResponse(os.path.join(WEB_DIR, "icons", name),
+                        media_type="image/png")
+
+# ---------------- реалтайм: WebSocket ----------------
+class WSManager:
+    def __init__(self):
+        self.conns: dict = {}
+
+    async def connect(self, ws, uid: int):
+        await ws.accept()
+        self.conns.setdefault(uid, set()).add(ws)
+
+    def drop(self, ws, uid: int):
+        s = self.conns.get(uid)
+        if s and ws in s:
+            s.remove(ws)
+            if not s:
+                del self.conns[uid]
+
+    async def send(self, uid: int, msg: dict):
+        for ws in list(self.conns.get(uid, ())):
+            try:
+                await ws.send_json(msg)
+            except Exception:
+                pass
+
+    async def ping_couple(self, uid: int, what: str = "all"):
+        msg = {"type": "reload", "what": what}
+        await self.send(uid, msg)
+        try:
+            me, partner = couple_of(uid)
+        except HTTPException:
+            return
+        if partner:
+            await self.send(partner["id"], msg)
+
+wsman = WSManager()
+
+@app.websocket("/ws")
+async def ws_ep(ws: WebSocket, user_id: int):
+    try:
+        me, partner = couple_of(user_id)
+    except HTTPException:
+        await ws.close()
+        return
+    await wsman.connect(ws, user_id)
+    if partner:
+        await wsman.send(partner["id"], {"type": "presence",
+                                         "user_id": user_id, "online": True})
+    try:
+        while True:
+            await ws.receive_text()  # keepalive от клиента, игнорируем
+    except WebSocketDisconnect:
+        pass
+    finally:
+        wsman.drop(ws, user_id)
+        if partner and user_id not in wsman.conns:
+            await wsman.send(partner["id"], {"type": "presence",
+                                             "user_id": user_id, "online": False})
+
+def today():
+    return datetime.date.today().isoformat()
+
+def couple_of(user_id: int):
+    con = db()
+    me = con.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
+    if not me:
+        con.close()
+        raise HTTPException(404, "user not found")
+    partner = None
+    if me["partner_id"]:
+        partner = con.execute("SELECT * FROM users WHERE id=?",
+                              (me["partner_id"],)).fetchone()
+    con.close()
+    return me, partner
+
+def partner_id_of(user_id: int) -> Optional[int]:
+    me, partner = couple_of(user_id)
+    return partner["id"] if partner else None
+
+def touch_streak_days(user_id: int) -> int:
+    """Серия: подряд идущие дни с любой активностью (ответ/настроение/запись)."""
+    con = db()
+    days = set()
+    pid = partner_id_of(user_id)
+    ids = [user_id] + ([pid] if pid else [])
+    q = ",".join("?" * len(ids))
+    for r in con.execute(f"SELECT DISTINCT qdate d FROM answers WHERE user_id IN ({q})", ids):
+        days.add(r["d"])
+    for r in con.execute(f"SELECT DISTINCT substr(ts,1,10) d FROM pack_a WHERE user_id IN ({q})", ids):
+        days.add(r["d"])
+    for r in con.execute(f"SELECT DISTINCT substr(ts,1,10) d FROM moods WHERE user_id IN ({q})", ids):
+        days.add(r["d"])
+    for r in con.execute(f"SELECT DISTINCT substr(ts,1,10) d FROM journal WHERE user_id IN ({q})", ids):
+        days.add(r["d"])
+    con.close()
+    d = datetime.date.today()
+    if d.isoformat() not in days:
+        d -= datetime.timedelta(days=1)
+        if d.isoformat() not in days:
+            return 0
+    streak = 0
+    while d.isoformat() in days:
+        streak += 1
+        d -= datetime.timedelta(days=1)
+    return streak
+
+# ---------------- модели ----------------
+class PairIn(BaseModel):
+    name: str
+    birth: str  # YYYY-MM-DD, обязательна
+    avatar: str = ""  # URL из POST /photos
+
+class JoinIn(BaseModel):
+    name: str
+    code: str
+    birth: str
+    avatar: str = ""
+
+class MoodIn(BaseModel):
+    user_id: int
+    mood: str
+    note: str = ""
+
+class AnswerIn(BaseModel):
+    user_id: int
+    text: str
+
+class QuizAnswerIn(BaseModel):
+    user_id: int
+    qid: int
+    option: int
+
+class PackAnswerIn(BaseModel):
+    user_id: int
+    qid: int
+    text: str = ""
+    photo: str = ""
+
+class IdeaIn(BaseModel):
+    title: str
+    category: str = ""
+    budget: str = ""
+
+class JournalIn(BaseModel):
+    user_id: int
+    title: str
+    text: str = ""
+    photo: str = ""  # URL из POST /photos
+
+class EventIn(BaseModel):
+    user_id: int
+    title: str
+    date: str  # YYYY-MM-DD
+    icon: str = "🎉"
+    repeat: bool = False
+
+class LikeIn(BaseModel):
+    user_id: int
+
+class TapIn(BaseModel):
+    user_id: int
+
+# ---------------- pairing / профиль ----------------
+def new_code():
+    return "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
+
+def check_birth(birth: str) -> str:
+    try:
+        bd = datetime.date.fromisoformat(birth)
+    except ValueError:
+        raise HTTPException(400, "birth must be YYYY-MM-DD")
+    if not (datetime.date(1900, 1, 1) <= bd <= datetime.date.today()):
+        raise HTTPException(400, "bad birth date")
+    return birth
+
+def age_of(birth: str):
+    if not birth:
+        return None
+    b = datetime.date.fromisoformat(birth)
+    t = datetime.date.today()
+    return t.year - b.year - ((t.month, t.day) < (b.month, b.day))
+
+@app.post("/pair")
+def pair_create(body: PairIn):
+    check_birth(body.birth)
+    con = db()
+    code = new_code()
+    cur = con.execute("INSERT INTO users(name,pair_code,together_since,birth,avatar) VALUES(?,?,?,?,?)",
+                      (body.name.strip(), code, today(), body.birth, body.avatar))
+    con.commit()
+    uid = cur.lastrowid
+    con.close()
+    return {"user_id": uid, "pair_code": code}
+
+@app.post("/pair/join")
+async def pair_join(body: JoinIn):
+    check_birth(body.birth)
+    con = db()
+    other = con.execute("SELECT * FROM users WHERE pair_code=?",
+                        (body.code.strip().upper(),)).fetchone()
+    if not other:
+        con.close()
+        raise HTTPException(404, "code not found")
+    if other["partner_id"]:
+        con.close()
+        raise HTTPException(400, "code already used")
+    cur = con.execute("INSERT INTO users(name,pair_code,together_since,birth,avatar) VALUES(?,?,?,?,?)",
+                      (body.name.strip(), new_code(), other["together_since"],
+                       body.birth, body.avatar))
+    uid = cur.lastrowid
+    con.execute("UPDATE users SET partner_id=? WHERE id=?", (uid, other["id"]))
+    con.execute("UPDATE users SET partner_id=? WHERE id=?", (other["id"], uid))
+    con.commit()
+    con.close()
+    await wsman.ping_couple(uid, "pair")
+    return {"user_id": uid, "partner_id": other["id"]}
+
+@app.get("/me")
+def me(user_id: int):
+    me, partner = couple_of(user_id)
+    since = datetime.date.fromisoformat(me["together_since"])
+    days = (datetime.date.today() - since).days
+    mine = None
+    con = db()
+    r = con.execute("SELECT mood,note,ts FROM moods WHERE user_id=? ORDER BY id DESC LIMIT 1",
+                    (user_id,)).fetchone()
+    if r:
+        mine = dict(r)
+    theirs = None
+    if partner:
+        r = con.execute("SELECT mood,note,ts FROM moods WHERE user_id=? ORDER BY id DESC LIMIT 1",
+                        (partner["id"],)).fetchone()
+        if r:
+            theirs = dict(r)
+    con.close()
+    return {"id": me["id"], "name": me["name"], "pair_code": me["pair_code"],
+            "birth": me["birth"] or "", "avatar": me["avatar"] or "",
+            "partner": {"id": partner["id"], "name": partner["name"],
+                        "birth": partner["birth"] or "",
+                        "avatar": partner["avatar"] or "",
+                        "age": age_of(partner["birth"] or "")} if partner else None,
+            "days_together": days, "together_since": me["together_since"],
+            "streak": touch_streak_days(user_id),
+            "my_mood": mine, "partner_mood": theirs}
+
+@app.get("/partner")
+def partner_profile(user_id: int):
+    """Полный профиль партнёра: аватар, возраст, настроение, активность."""
+    me, partner = couple_of(user_id)
+    if not partner:
+        raise HTTPException(400, "no partner yet")
+    pid = partner["id"]
+    con = db()
+    mood = con.execute("SELECT mood,note,ts FROM moods WHERE user_id=? ORDER BY id DESC LIMIT 1",
+                       (pid,)).fetchone()
+    answers = con.execute("SELECT COUNT(*) n FROM answers WHERE user_id=?", (pid,)).fetchone()["n"]
+    answers += con.execute("SELECT COUNT(*) n FROM pack_a WHERE user_id=?", (pid,)).fetchone()["n"]
+    moods = con.execute("SELECT COUNT(*) n FROM moods WHERE user_id=?", (pid,)).fetchone()["n"]
+    moments = con.execute("SELECT COUNT(*) n FROM journal WHERE user_id=?", (pid,)).fetchone()["n"]
+    taps = con.execute("SELECT COUNT(*) n FROM taps WHERE user_id=?", (pid,)).fetchone()["n"]
+    con.close()
+    return {"id": pid, "name": partner["name"],
+            "avatar": partner["avatar"] or "", "birth": partner["birth"] or "",
+            "age": age_of(partner["birth"] or ""),
+            "days_together": (datetime.date.today() -
+            datetime.date.fromisoformat(me["together_since"])).days,
+            "latest_mood": dict(mood) if mood else None,
+            "answers": answers, "moods": moods, "moments": moments, "taps": taps}
+
+# ---------------- настроение ----------------
+@app.post("/mood")
+async def set_mood(body: MoodIn):
+    couple_of(body.user_id)
+    con = db()
+    con.execute("INSERT INTO moods(user_id,mood,note,ts) VALUES(?,?,?,?)",
+                (body.user_id, body.mood, body.note,
+                 datetime.datetime.now().isoformat(timespec="seconds")))
+    con.commit()
+    con.close()
+    await wsman.ping_couple(body.user_id, "mood")
+    return {"ok": True}
+
+# ---------------- ежедневный вопрос ----------------
+def daily_question():
+    idx = datetime.date.today().toordinal() % len(QUESTIONS)
+    return {"date": today(), "index": idx, "text": QUESTIONS[idx]}
+
+@app.get("/daily")
+def get_daily(user_id: int):
+    couple_of(user_id)
+    dq = daily_question()
+    con = db()
+    pid = partner_id_of(user_id)
+    mine = con.execute("SELECT text FROM answers WHERE user_id=? AND qdate=?",
+                       (user_id, dq["date"])).fetchone()
+    theirs = con.execute("SELECT text FROM answers WHERE user_id=? AND qdate=?",
+                         (pid, dq["date"])).fetchone() if pid else None
+    con.close()
+    # ответ партнёра виден только когда ответили оба
+    return {"question": dq,
+            "my_answer": mine["text"] if mine else None,
+            "partner_answer": theirs["text"] if (mine and theirs) else None,
+            "partner_answered": bool(theirs)}
+
+@app.post("/daily/answer")
+async def answer_daily(body: AnswerIn):
+    user_id = body.user_id
+    couple_of(user_id)
+    dq = daily_question()
+    con = db()
+    con.execute("INSERT OR REPLACE INTO answers(user_id,qdate,qindex,text,ts) VALUES(?,?,?,?,?)",
+                (user_id, dq["date"], dq["index"], body.text,
+                 datetime.datetime.now().isoformat(timespec="seconds")))
+    con.commit()
+    con.close()
+    await wsman.ping_couple(user_id, "daily")
+    return {"ok": True}
+
+# ---------------- викторины ----------------
+@app.get("/quizzes")
+def quizzes():
+    con = db()
+    rows = con.execute("SELECT id,title FROM quizzes").fetchall()
+    out = []
+    for r in rows:
+        n = con.execute("SELECT COUNT(*) n FROM quiz_q WHERE quiz_id=?", (r["id"],)).fetchone()["n"]
+        out.append({"id": r["id"], "title": r["title"], "questions": n})
+    con.close()
+    return out
+
+@app.get("/quiz/{qid}")
+def quiz(qid: int, user_id: int):
+    couple_of(user_id)
+    con = db()
+    q = con.execute("SELECT * FROM quizzes WHERE id=?", (qid,)).fetchone()
+    if not q:
+        con.close()
+        raise HTTPException(404, "quiz not found")
+    rows = con.execute("SELECT id,text,options FROM quiz_q WHERE quiz_id=?", (qid,)).fetchall()
+    mine = {r["qid"]: r["option"] for r in
+            con.execute("SELECT qid,option FROM quiz_a WHERE user_id=? AND quiz_id=?", (user_id, qid))}
+    pid = partner_id_of(user_id)
+    theirs = {r["qid"]: True for r in
+              con.execute("SELECT qid FROM quiz_a WHERE user_id=? AND quiz_id=?", (pid, qid))} if pid else {}
+    con.close()
+    return {"id": q["id"], "title": q["title"],
+            "questions": [{"id": r["id"], "text": r["text"],
+                           "options": json.loads(r["options"]),
+                           "my_option": mine.get(r["id"]),
+                           "partner_answered": r["id"] in theirs} for r in rows]}
+
+@app.post("/quiz/{qid}/answer")
+async def quiz_answer(qid: int, body: QuizAnswerIn):
+    couple_of(body.user_id)
+    con = db()
+    ok = con.execute("SELECT id FROM quiz_q WHERE id=? AND quiz_id=?",
+                     (body.qid, qid)).fetchone()
+    if not ok:
+        con.close()
+        raise HTTPException(404, "question not found")
+    con.execute("INSERT OR REPLACE INTO quiz_a(user_id,quiz_id,qid,option) VALUES(?,?,?,?)",
+                (body.user_id, qid, body.qid, body.option))
+    con.commit()
+    con.close()
+    await wsman.ping_couple(body.user_id, "quiz")
+    return {"ok": True}
+
+@app.get("/quiz/{qid}/result")
+def quiz_result(qid: int, user_id: int):
+    me, partner = couple_of(user_id)
+    if not partner:
+        raise HTTPException(400, "no partner yet")
+    con = db()
+    rows = con.execute("SELECT id FROM quiz_q WHERE quiz_id=?", (qid,)).fetchall()
+    if not rows:
+        con.close()
+        raise HTTPException(404, "quiz not found")
+    mine = {r["qid"]: r["option"] for r in
+            con.execute("SELECT qid,option FROM quiz_a WHERE user_id=? AND quiz_id=?", (user_id, qid))}
+    theirs = {r["qid"]: r["option"] for r in
+              con.execute("SELECT qid,option FROM quiz_a WHERE user_id=? AND quiz_id=?",
+                          (partner["id"], qid))}
+    con.close()
+    common = [i for i in mine if i in theirs]
+    if not common:
+        return {"compatibility": None, "answered_together": 0, "total": len(rows)}
+    same = sum(1 for i in common if mine[i] == theirs[i])
+    return {"compatibility": round(100 * same / len(common)),
+            "answered_together": len(common), "total": len(rows)}
+
+# ---------------- смена / удаление пары ----------------
+@app.delete("/pair")
+def pair_leave(user_id: int):
+    """Покинуть пару: оба партнёра становятся одиночками, данные остаются."""
+    me, partner = couple_of(user_id)
+    con = db()
+    con.execute("UPDATE users SET partner_id=NULL WHERE id=?", (user_id,))
+    if partner:
+        con.execute("UPDATE users SET partner_id=NULL WHERE id=?", (partner["id"],))
+    con.commit()
+    con.close()
+    return {"ok": True}
+
+# ---------------- обнимашки (tap-to-feel) ----------------
+@app.post("/tap")
+async def tap(body: TapIn):
+    couple_of(body.user_id)
+    now = datetime.datetime.now().isoformat(timespec="seconds")
+    con = db()
+    con.execute("INSERT INTO taps(user_id,ts) VALUES(?,?)", (body.user_id, now))
+    con.commit()
+    con.close()
+    await wsman.ping_couple(body.user_id, "tap")
+    return {"ok": True, "ts": now}
+
+@app.get("/tap")
+def tap_status(user_id: int):
+    me, partner = couple_of(user_id)
+    con = db()
+    mine = con.execute("SELECT ts FROM taps WHERE user_id=? ORDER BY id DESC LIMIT 1",
+                       (user_id,)).fetchone()
+    theirs = con.execute("SELECT ts FROM taps WHERE user_id=? ORDER BY id DESC LIMIT 1",
+                         (partner["id"],)).fetchone() if partner else None
+    n = con.execute("SELECT COUNT(*) n FROM taps WHERE user_id IN (?,?)",
+                    (user_id, partner["id"] if partner else -1)).fetchone()["n"]
+    con.close()
+    return {"my_last": mine["ts"] if mine else None,
+            "partner_last": theirs["ts"] if theirs else None,
+            "total": n}
+
+# ---------------- лента настроений ----------------
+@app.get("/moods")
+def moods_feed(user_id: int):
+    me, partner = couple_of(user_id)
+    ids = [user_id] + ([partner["id"]] if partner else [])
+    q = ",".join("?" * len(ids))
+    con = db()
+    rows = con.execute(f"SELECT m.mood,m.note,m.ts,u.name author FROM moods m "
+                       f"JOIN users u ON u.id=m.user_id WHERE m.user_id IN ({q}) "
+                       f"ORDER BY m.id DESC LIMIT 14", ids).fetchall()
+    con.close()
+    return [dict(r) for r in rows]
+
+# ---------------- статистика пары ----------------
+@app.get("/stats")
+def stats(user_id: int):
+    me, partner = couple_of(user_id)
+    pid = partner["id"] if partner else None
+    ids = [user_id] + ([pid] if pid else [])
+    q = ",".join("?" * len(ids))
+    con = db()
+    answers = con.execute(f"SELECT COUNT(*) n FROM answers WHERE user_id IN ({q})", ids).fetchone()["n"]
+    answers += con.execute(f"SELECT COUNT(*) n FROM pack_a WHERE user_id IN ({q})", ids).fetchone()["n"]
+    moods = con.execute(f"SELECT COUNT(*) n FROM moods WHERE user_id IN ({q})", ids).fetchone()["n"]
+    moments = con.execute(f"SELECT COUNT(*) n FROM journal WHERE user_id IN ({q})", ids).fetchone()["n"]
+    compats = []
+    if pid:
+        for r in con.execute("SELECT id FROM quizzes").fetchall():
+            qs = con.execute("SELECT id FROM quiz_q WHERE quiz_id=?", (r["id"],)).fetchall()
+            ma = {x["qid"]: x["option"] for x in con.execute(
+                "SELECT qid,option FROM quiz_a WHERE user_id=? AND quiz_id=?", (user_id, r["id"]))}
+            ta = {x["qid"]: x["option"] for x in con.execute(
+                "SELECT qid,option FROM quiz_a WHERE user_id=? AND quiz_id=?", (pid, r["id"]))}
+            common = [i for i in ma if i in ta]
+            if common:
+                compats.append(100 * sum(1 for i in common if ma[i] == ta[i]) / len(common))
+    con.close()
+    return {"days_together": (datetime.date.today() -
+            datetime.date.fromisoformat(me["together_since"])).days,
+            "streak": touch_streak_days(user_id),
+            "answers": answers, "moods": moods, "moments": moments,
+            "avg_compatibility": round(sum(compats) / len(compats)) if compats else None,
+            "quizzes_together": len(compats)}
+
+# ---------------- тематические паки вопросов ----------------
+@app.get("/packs")
+def packs(user_id: int, kind: str = ""):
+    me, partner = couple_of(user_id)
+    pid = partner["id"] if partner else None
+    con = db()
+    rows = con.execute("SELECT * FROM packs" + (" WHERE kind=?" if kind else ""),
+                       (kind,) if kind else []).fetchall()
+    out = []
+    for p in rows:
+        total = con.execute("SELECT COUNT(*) n FROM pack_q WHERE pack_id=?",
+                            (p["id"],)).fetchone()["n"]
+        my = con.execute("SELECT COUNT(*) n FROM pack_a WHERE user_id=? AND pack_id=?",
+                         (user_id, p["id"])).fetchone()["n"]
+        together = 0
+        if pid:
+            together = con.execute(
+                "SELECT COUNT(*) n FROM pack_a a JOIN pack_a b "
+                "ON a.pack_id=b.pack_id AND a.qid=b.qid "
+                "WHERE a.user_id=? AND b.user_id=? AND a.pack_id=?",
+                (user_id, pid, p["id"])).fetchone()["n"]
+        out.append({"id": p["id"], "title": p["title"],
+                    "description": p["description"], "kind": p["kind"],
+                    "total": total,
+                    "answered_by_me": my, "answered_together": together})
+    con.close()
+    return out
+
+@app.get("/pack/{pid}")
+def pack(pid: int, user_id: int):
+    me, partner = couple_of(user_id)
+    paid = partner["id"] if partner else None
+    con = db()
+    p = con.execute("SELECT * FROM packs WHERE id=?", (pid,)).fetchone()
+    if not p:
+        con.close()
+        raise HTTPException(404, "pack not found")
+    rows = con.execute("SELECT id,text FROM pack_q WHERE pack_id=?", (pid,)).fetchall()
+    mine = {r["qid"]: {"text": r["text"], "photo": r["photo"]} for r in
+            con.execute("SELECT qid,text,photo FROM pack_a WHERE user_id=? AND pack_id=?",
+                        (user_id, pid))}
+    theirs = {r["qid"]: {"text": r["text"], "photo": r["photo"]} for r in
+              con.execute("SELECT qid,text,photo FROM pack_a WHERE user_id=? AND pack_id=?",
+                          (paid, pid))} if paid else {}
+    con.close()
+    return {"id": p["id"], "title": p["title"], "description": p["description"],
+            "kind": p["kind"],
+            "questions": [{"id": r["id"], "text": r["text"],
+                           "my_answer": mine.get(r["id"], {}).get("text") if r["id"] in mine else None,
+                           "my_photo": mine.get(r["id"], {}).get("photo") if r["id"] in mine else None,
+                           "partner_answered": r["id"] in theirs,
+                           "partner_answer": theirs[r["id"]]["text"] if r["id"] in mine and r["id"] in theirs else None,
+                           "partner_photo": theirs[r["id"]]["photo"] if r["id"] in mine and r["id"] in theirs else None} for r in rows]}
+
+@app.post("/pack/{pid}/answer")
+async def pack_answer(pid: int, body: PackAnswerIn):
+    couple_of(body.user_id)
+    con = db()
+    ok = con.execute("SELECT id FROM pack_q WHERE id=? AND pack_id=?",
+                     (body.qid, pid)).fetchone()
+    if not ok:
+        con.close()
+        raise HTTPException(404, "question not found")
+    if not body.text and not body.photo:
+        con.close()
+        raise HTTPException(400, "empty answer")
+    con.execute("INSERT OR REPLACE INTO pack_a(user_id,pack_id,qid,text,photo,ts) VALUES(?,?,?,?,?,?)",
+                (body.user_id, pid, body.qid, body.text, body.photo,
+                 datetime.datetime.now().isoformat(timespec="seconds")))
+    con.commit()
+    con.close()
+    await wsman.ping_couple(body.user_id, "packs")
+    return {"ok": True}
+
+# ---------------- идеи свиданий ----------------
+@app.get("/ideas")
+def ideas(category: str = "", budget: str = ""):
+    con = db()
+    q, args = "SELECT * FROM ideas WHERE 1=1", []
+    if category:
+        q += " AND category=?"; args.append(category)
+    if budget:
+        q += " AND budget=?"; args.append(budget)
+    rows = con.execute(q, args).fetchall()
+    con.close()
+    return [dict(r) for r in rows]
+
+@app.get("/idea/random")
+def idea_random():
+    con = db()
+    rows = con.execute("SELECT * FROM ideas WHERE done=0").fetchall()
+    con.close()
+    if not rows:
+        raise HTTPException(404, "no ideas left")
+    return dict(random.choice(rows))
+
+@app.post("/ideas")
+async def idea_add(body: IdeaIn):
+    con = db()
+    cur = con.execute("INSERT INTO ideas(title,category,budget) VALUES(?,?,?)",
+                      (body.title, body.category, body.budget))
+    con.commit()
+    con.close()
+    return {"id": cur.lastrowid}
+
+@app.post("/idea/{iid}/done")
+async def idea_done(iid: int, done: bool = True):
+    con = db()
+    con.execute("UPDATE ideas SET done=? WHERE id=?", (1 if done else 0, iid))
+    con.commit()
+    con.close()
+    return {"ok": True}
+
+# ---------------- фото ----------------
+PHOTO_TYPES = {"image/jpeg": ".jpg", "image/png": ".png",
+               "image/webp": ".webp", "image/gif": ".gif"}
+
+@app.post("/photos")
+async def upload_photo(file: UploadFile = File(...)):
+    if file.content_type not in PHOTO_TYPES:
+        raise HTTPException(400, "only jpeg/png/webp/gif images")
+    data = await file.read()
+    if len(data) > 5 * 1024 * 1024:
+        raise HTTPException(400, "max 5MB")
+    os.makedirs(PHOTO_DIR, exist_ok=True)
+    import uuid as _uuid
+    name = _uuid.uuid4().hex + PHOTO_TYPES[file.content_type]
+    with open(os.path.join(PHOTO_DIR, name), "wb") as f:
+        f.write(data)
+    return {"url": f"/photos/{name}"}
+
+@app.get("/photos/{name}")
+def get_photo(name: str):
+    if not name.replace(".", "").replace("_", "").replace("-", "").isalnum() or "/" in name:
+        raise HTTPException(400, "bad name")
+    path = os.path.join(PHOTO_DIR, os.path.basename(name))
+    if not os.path.isfile(path):
+        raise HTTPException(404, "not found")
+    return FileResponse(path)
+
+# ---------------- журнал ----------------
+@app.post("/journal")
+async def journal_add(body: JournalIn):
+    couple_of(body.user_id)
+    con = db()
+    cur = con.execute("INSERT INTO journal(user_id,title,text,photo,ts) VALUES(?,?,?,?,?)",
+                      (body.user_id, body.title, body.text, body.photo,
+                       datetime.datetime.now().isoformat(timespec="seconds")))
+    con.commit()
+    con.close()
+    await wsman.ping_couple(body.user_id, "journal")
+    return {"id": cur.lastrowid}
+
+def journal_row(r, user_id: int, con) -> dict:
+    likes = con.execute("SELECT COUNT(*) n FROM journal_likes WHERE entry_id=?",
+                        (r["id"],)).fetchone()["n"]
+    liked = con.execute("SELECT 1 FROM journal_likes WHERE entry_id=? AND user_id=?",
+                        (r["id"], user_id)).fetchone()
+    d = dict(r)
+    d["likes"] = likes
+    d["liked_by_me"] = bool(liked)
+    return d
+
+@app.get("/journal")
+def journal_list(user_id: int, q: str = "", author: str = "all", fav: bool = False):
+    me, partner = couple_of(user_id)
+    ids = [user_id] + ([partner["id"]] if partner else [])
+    sql = ("SELECT j.*,u.name author FROM journal j JOIN users u ON u.id=j.user_id "
+           f"WHERE j.user_id IN ({','.join('?' * len(ids))})")
+    args: list = list(ids)
+    if author == "me":
+        sql += " AND j.user_id=?"; args.append(user_id)
+    elif author == "partner" and partner:
+        sql += " AND j.user_id=?"; args.append(partner["id"])
+    if fav:
+        sql += " AND j.fav=1"
+    if q:
+        sql += " AND (j.title LIKE ? OR j.text LIKE ?)"; args += [f"%{q}%", f"%{q}%"]
+    sql += " ORDER BY j.fav DESC, j.id DESC"
+    con = db()
+    rows = con.execute(sql, args).fetchall()
+    out = [journal_row(r, user_id, con) for r in rows]
+    con.close()
+    return out
+
+@app.post("/journal/{jid}/like")
+async def journal_like(jid: int, body: LikeIn):
+    couple_of(body.user_id)
+    con = db()
+    ok = con.execute("SELECT id,user_id FROM journal WHERE id=?", (jid,)).fetchone()
+    if not ok:
+        con.close()
+        raise HTTPException(404, "entry not found")
+    had = con.execute("SELECT 1 FROM journal_likes WHERE entry_id=? AND user_id=?",
+                      (jid, body.user_id)).fetchone()
+    if had:
+        con.execute("DELETE FROM journal_likes WHERE entry_id=? AND user_id=?",
+                    (jid, body.user_id))
+        liked = False
+    else:
+        con.execute("INSERT INTO journal_likes(entry_id,user_id) VALUES(?,?)",
+                    (jid, body.user_id))
+        liked = True
+    likes = con.execute("SELECT COUNT(*) n FROM journal_likes WHERE entry_id=?",
+                        (jid,)).fetchone()["n"]
+    con.commit()
+    con.close()
+    await wsman.ping_couple(body.user_id, "journal")
+    return {"liked": liked, "likes": likes}
+
+@app.post("/journal/{jid}/fav")
+async def journal_fav(jid: int, body: LikeIn):
+    couple_of(body.user_id)
+    con = db()
+    ok = con.execute("SELECT fav FROM journal WHERE id=?", (jid,)).fetchone()
+    if not ok:
+        con.close()
+        raise HTTPException(404, "entry not found")
+    con.execute("UPDATE journal SET fav=? WHERE id=?", (0 if ok["fav"] else 1, jid))
+    con.commit()
+    con.close()
+    await wsman.ping_couple(body.user_id, "journal")
+    return {"ok": True}
+
+@app.delete("/journal/{jid}")
+async def journal_del(jid: int, user_id: int):
+    me, partner = couple_of(user_id)
+    con = db()
+    row = con.execute("SELECT user_id FROM journal WHERE id=?", (jid,)).fetchone()
+    if not row:
+        con.close()
+        raise HTTPException(404, "entry not found")
+    if row["user_id"] != user_id:
+        con.close()
+        raise HTTPException(403, "only author can delete")
+    con.execute("DELETE FROM journal_likes WHERE entry_id=?", (jid,))
+    con.execute("DELETE FROM journal WHERE id=?", (jid,))
+    con.commit()
+    con.close()
+    await wsman.ping_couple(user_id, "journal")
+    return {"ok": True}
+
+# ---------------- события / обратный отсчёт ----------------
+def next_annual(month: int, day: int, now: datetime.date) -> datetime.date:
+    for y in range(now.year, now.year + 9):
+        try:
+            d = datetime.date(y, month, day)
+        except ValueError:
+            continue  # 29 февраля
+        if d >= now:
+            return d
+    return datetime.date(now.year + 1, month, day)
+
+@app.post("/events")
+async def event_add(body: EventIn):
+    couple_of(body.user_id)
+    datetime.date.fromisoformat(body.date)  # проверка формата
+    con = db()
+    cur = con.execute("INSERT INTO events(user_id,title,date,icon,repeat) VALUES(?,?,?,?,?)",
+                      (body.user_id, body.title, body.date,
+                       body.icon, 1 if body.repeat else 0))
+    con.commit()
+    con.close()
+    await wsman.ping_couple(body.user_id, "events")
+    return {"id": cur.lastrowid}
+
+@app.get("/events")
+def events(user_id: int):
+    me, partner = couple_of(user_id)
+    ids = [user_id] + ([partner["id"]] if partner else [])
+    q = ",".join("?" * len(ids))
+    con = db()
+    rows = con.execute(f"SELECT * FROM events WHERE user_id IN ({q})", ids).fetchall()
+    con.close()
+    now = datetime.date.today()
+    out = []
+    for r in rows:
+        base = datetime.date.fromisoformat(r["date"])
+        show = r["date"]
+        if r["repeat"]:
+            nxt = next_annual(base.month, base.day, now)
+            d = (nxt - now).days
+            show = nxt.isoformat()
+        else:
+            d = (base - now).days
+        out.append({"id": r["id"], "title": r["title"], "date": show,
+                    "days_left": d, "icon": r["icon"] or "🎉",
+                    "repeat": bool(r["repeat"])})
+    out.sort(key=lambda e: (e["days_left"] < 0, abs(e["days_left"]) if e["days_left"] >= 0 else -e["days_left"]))
+    return out
+
+@app.delete("/events/{eid}")
+async def event_del(eid: int, user_id: int):
+    me, partner = couple_of(user_id)
+    ids = [user_id] + ([partner["id"]] if partner else [])
+    con = db()
+    row = con.execute("SELECT user_id FROM events WHERE id=?", (eid,)).fetchone()
+    if not row:
+        con.close()
+        raise HTTPException(404, "event not found")
+    if row["user_id"] not in ids:
+        con.close()
+        raise HTTPException(403, "not your event")
+    con.execute("DELETE FROM events WHERE id=?", (eid,))
+    con.commit()
+    con.close()
+    await wsman.ping_couple(user_id, "events")
+    return {"ok": True}
