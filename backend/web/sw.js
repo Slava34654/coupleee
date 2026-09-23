@@ -1,5 +1,5 @@
 /* CoupleJoy service worker: офлайн-оболочка + кэш фото, API всегда из сети */
-const CACHE = "cj-v1";
+const CACHE = "cj-v2";
 const SHELL = ["/", "/manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {

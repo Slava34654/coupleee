@@ -251,6 +251,10 @@ def init_db():
     CREATE TABLE IF NOT EXISTS journal_likes(
         entry_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
         PRIMARY KEY(entry_id, user_id));
+    CREATE TABLE IF NOT EXISTS widget_photos(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL, photo TEXT NOT NULL,
+        caption TEXT DEFAULT '', ts TEXT NOT NULL);
     """)
     # мягкие миграции для старых БД
     cols_j = [r["name"] for r in c.execute("PRAGMA table_info(journal)").fetchall()]
@@ -484,6 +488,11 @@ class EventIn(BaseModel):
 class LikeIn(BaseModel):
     user_id: int
 
+class WidgetIn(BaseModel):
+    user_id: int
+    photo: str
+    caption: str = ""
+
 class TapIn(BaseModel):
     user_id: int
 
@@ -714,6 +723,36 @@ def quiz_result(qid: int, user_id: int):
     same = sum(1 for i in common if mine[i] == theirs[i])
     return {"compatibility": round(100 * same / len(common)),
             "answered_together": len(common), "total": len(rows)}
+
+# ---------------- фото на виджет партнёра ----------------
+@app.post("/widget")
+async def widget_send(body: WidgetIn):
+    me, partner = couple_of(body.user_id)
+    if not body.photo:
+        raise HTTPException(400, "empty photo")
+    now = datetime.datetime.now().isoformat(timespec="seconds")
+    con = db()
+    con.execute("INSERT INTO widget_photos(user_id,photo,caption,ts) VALUES(?,?,?,?)",
+                (body.user_id, body.photo, body.caption, now))
+    con.execute("DELETE FROM widget_photos WHERE user_id=? AND id NOT IN "
+                "(SELECT id FROM widget_photos WHERE user_id=? ORDER BY id DESC LIMIT 20)",
+                (body.user_id, body.user_id))
+    con.commit()
+    con.close()
+    await wsman.ping_couple(body.user_id, "widget")
+    return {"ok": True, "ts": now}
+
+@app.get("/widget")
+def widget_latest(user_id: int):
+    me, partner = couple_of(user_id)
+    con = db()
+    mine = con.execute("SELECT photo,caption,ts FROM widget_photos WHERE user_id=? "
+                       "ORDER BY id DESC LIMIT 1", (user_id,)).fetchone()
+    theirs = con.execute("SELECT photo,caption,ts FROM widget_photos WHERE user_id=? "
+                         "ORDER BY id DESC LIMIT 1", (partner["id"],)).fetchone() if partner else None
+    con.close()
+    return {"mine": dict(mine) if mine else None,
+            "partner": dict(theirs) if theirs else None}
 
 # ---------------- смена / удаление пары ----------------
 @app.delete("/pair")

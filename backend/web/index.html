@@ -26,6 +26,28 @@
          background:rgba(20,16,33,.85); backdrop-filter:blur(8px);}
   header h1{margin:0; font-size:22px; color:var(--pink);}
   header small{color:var(--mut);}
+  /* --- красота --- */
+  header h1{background:linear-gradient(90deg,var(--pink),var(--gold));
+            -webkit-background-clip:text; background-clip:text; color:transparent;}
+  main section{animation:fadeUp .35s ease;}
+  @keyframes fadeUp{from{opacity:0; transform:translateY(10px);} to{opacity:1; transform:none;}}
+  .card{transition:transform .15s ease, box-shadow .2s ease;}
+  .card:active{transform:scale(.995);}
+  .btn{box-shadow:0 4px 14px rgba(0,0,0,.35); transition:transform .1s ease, filter .15s ease;}
+  .btn:active{transform:scale(.97); filter:brightness(1.1);}
+  .btn.ghost{border:1px solid #3d3170;}
+  .opt{transition:transform .1s ease, border-color .15s ease;}
+  .opt:active{transform:scale(.98); border-color:var(--pink);}
+  .mood{transition:transform .1s ease, background .15s ease;}
+  .mood:active{transform:scale(.9);}
+  input:focus,textarea:focus{outline:none; border-color:var(--pink);
+    box-shadow:0 0 0 3px color-mix(in srgb, var(--pink) 30%, transparent);}
+  nav button.on{position:relative;}
+  nav button.on::before{content:""; position:absolute; top:-7px; left:25%; right:25%;
+    height:3px; border-radius:3px; background:var(--pink);}
+  .code{text-shadow:0 0 18px color-mix(in srgb, var(--gold) 60%, transparent);}
+  body::before{content:"💞💖💜💗"; position:fixed; top:8px; right:12px; opacity:.12;
+    font-size:20px; pointer-events:none; letter-spacing:6px;}
   .iconbtn{background:#2d2452; color:var(--fg); border:1px solid #3d3170;
            border-radius:12px; font-size:20px; padding:4px 12px; cursor:pointer;}
   .menu{position:absolute; right:12px; top:60px; background:var(--card2);
@@ -463,14 +485,16 @@ function rel(ts){
   if(s < 86400) return Math.floor(s/3600) + " ч назад";
   return Math.floor(s/86400) + " дн назад";
 }
+function pluralDay(n){
+  const m10 = n % 10, m100 = n % 100;
+  if(m10 === 1 && m100 !== 11) return "день";
+  if(m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return "дня";
+  return "дней";
+}
 function tickTimer(){
   if(!loveSince) return;
-  let s = Math.max(0, Math.floor((Date.now() - loveSince) / 1000));
-  const d = Math.floor(s/86400); s %= 86400;
-  const h = String(Math.floor(s/3600)).padStart(2,"0");
-  const m = String(Math.floor(s%3600/60)).padStart(2,"0");
-  const ss = String(s%60).padStart(2,"0");
-  document.getElementById("h-timer").textContent = `${d} дн. ${h}:${m}:${ss} 💞`;
+  const d = Math.max(0, Math.floor((Date.now() - loveSince) / 86400000));
+  document.getElementById("h-timer").textContent = `💞 ${d} ${pluralDay(d)} вместе`;
 }
 setInterval(tickTimer, 1000);
 setInterval(() => {

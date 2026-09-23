@@ -11,6 +11,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.QuestionAnswer
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -31,6 +32,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.couplejoy.app.api.ApiClient
 import com.couplejoy.app.ui.AppTheme
 import com.couplejoy.app.ui.DailyScreen
 import com.couplejoy.app.ui.EventsScreen
@@ -42,6 +44,9 @@ import com.couplejoy.app.ui.PackScreen
 import com.couplejoy.app.ui.PairScreen
 import com.couplejoy.app.ui.QuizListScreen
 import com.couplejoy.app.ui.QuizScreen
+import com.couplejoy.app.ui.SettingsScreen
+import com.couplejoy.app.ui.WidgetSendScreen
+import com.couplejoy.app.widget.scheduleWidget
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -74,18 +79,25 @@ val TABS = listOf(
     Tab("ideas", "Идеи", Icons.Filled.Lightbulb),
     Tab("journal", "Журнал", Icons.Filled.MenuBook),
     Tab("events", "События", Icons.Filled.DateRange),
+    Tab("settings", "Настройки", Icons.Filled.Settings),
 )
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val prefs = getSharedPreferences("cj", Context.MODE_PRIVATE)
+        ApiClient.init(prefs.getString("base_url", ApiClient.DEFAULT_URL)!!)
+        scheduleWidget(this)
         setContent {
             AppTheme {
                 val vm: AppVm = viewModel()
                 if (vm.userId == null) {
                     val saved = prefs.getInt("uid", -1)
                     if (saved > 0) vm.userId = saved
+                }
+                var baseUrl by androidx.compose.runtime.remember {
+                    androidx.compose.runtime.mutableStateOf(
+                        prefs.getString("base_url", ApiClient.DEFAULT_URL)!!)
                 }
                 val nav = rememberNavController()
                 val start = if (vm.userId == null) "pair" else "home"
@@ -116,7 +128,26 @@ class MainActivity : ComponentActivity() {
                                 nav.navigate("home") { popUpTo("pair") { inclusive = true } }
                             }
                         }
-                        composable("home") { HomeScreen(vm) { nav.navigate("quizlist") } }
+                        composable("home") {
+                            HomeScreen(vm, { nav.navigate("quizlist") },
+                                { nav.navigate("wsend") })
+                        }
+                        composable("wsend") { WidgetSendScreen(vm) }
+                        composable("settings") {
+                            SettingsScreen(vm, baseUrl,
+                                onSaveUrl = {
+                                    prefs.edit().putString("base_url", it).apply()
+                                    baseUrl = it
+                                    ApiClient.init(it)
+                                },
+                                onLogout = {
+                                    prefs.edit().remove("uid").apply()
+                                    vm.userId = null
+                                    while (nav.popBackStack()) {
+                                    }
+                                    nav.navigate("pair")
+                                })
+                        }
                         composable("daily") { DailyScreen(vm, { nav.navigate("quizlist") }, { nav.navigate("packs") }) }
                         composable("packs") { PackListScreen(vm) { nav.navigate("pack/$it") } }
                         composable("pack/{id}",

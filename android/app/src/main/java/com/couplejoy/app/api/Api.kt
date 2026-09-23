@@ -1,10 +1,13 @@
 package com.couplejoy.app.api
 
+import okhttp3.MultipartBody
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.Body
 import retrofit2.http.GET
+import retrofit2.http.Multipart
 import retrofit2.http.POST
+import retrofit2.http.Part
 import retrofit2.http.Path
 import retrofit2.http.Query
 
@@ -43,6 +46,10 @@ data class JournalEntry(val id: Int, val user_id: Int, val title: String,
                        val text: String, val ts: String, val author: String)
 data class EventReq(val user_id: Int, val title: String, val date: String)
 data class EventResp(val id: Int, val title: String, val date: String, val days_left: Int)
+data class PhotoResp(val url: String)
+data class WidgetPhoto(val photo: String, val caption: String, val ts: String)
+data class WidgetResp(val mine: WidgetPhoto?, val partner: WidgetPhoto?)
+data class WidgetReq(val user_id: Int, val photo: String, val caption: String = "")
 data class PackShort(val id: Int, val title: String, val description: String,
                     val kind: String = "short",
                     val total: Int, val answered_by_me: Int, val answered_together: Int)
@@ -84,12 +91,24 @@ interface Api {
                                        @Query("user_id") u: Int): PackResp
     @POST("pack/{id}/answer") suspend fun packAnswer(@Path("id") id: Int,
                                                      @Body b: PackAnsReq): OkResp
+    @Multipart @POST("photos") suspend fun upload(@Part file: MultipartBody.Part): PhotoResp
+    @POST("widget") suspend fun widgetSend(@Body b: WidgetReq): OkResp
+    @GET("widget") suspend fun widget(@Query("user_id") u: Int): WidgetResp
 }
 
 object ApiClient {
-    val api: Api = Retrofit.Builder()
-        .baseUrl(BASE_URL)
+    const val DEFAULT_URL = "http://10.0.2.2:8000/"
+    private fun build(url: String): Api = Retrofit.Builder()
+        .baseUrl(url)
         .addConverterFactory(GsonConverterFactory.create())
         .build()
         .create(Api::class.java)
+    var api: Api = build(DEFAULT_URL)
+    fun forUrl(url: String): Api {
+        val u = if (url.endsWith("/")) url else "$url/"
+        return build(u)
+    }
+    fun init(url: String) {
+        api = forUrl(url.ifBlank { DEFAULT_URL })
+    }
 }

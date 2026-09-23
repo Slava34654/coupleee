@@ -51,7 +51,18 @@ import com.couplejoy.app.api.QuizAnsReq
 import com.couplejoy.app.api.QuizResp
 import com.couplejoy.app.api.QuizResult
 import com.couplejoy.app.api.QuizShort
+import com.couplejoy.app.api.WidgetPhoto
+import com.couplejoy.app.api.WidgetReq
 import kotlinx.coroutines.launch
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import coil.compose.AsyncImage
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
+import okhttp3.RequestBody.Companion.toRequestBody
 
 @Composable
 fun Err(vm: AppVm) {
@@ -105,7 +116,7 @@ fun PairScreen(vm: AppVm, onDone: (Int) -> Unit) {
 
 // ---------- главная ----------
 @Composable
-fun HomeScreen(vm: AppVm, toQuizzes: () -> Unit) {
+fun HomeScreen(vm: AppVm, toQuizzes: () -> Unit, onWidgetSend: () -> Unit) {
     val uid = vm.userId ?: return
     var me by remember { mutableStateOf<MeResp?>(null) }
     var loading by remember { mutableStateOf(true) }
@@ -154,6 +165,11 @@ fun HomeScreen(vm: AppVm, toQuizzes: () -> Unit) {
             item {
                 OutlinedButton(toQuizzes, Modifier.fillMaxWidth()) {
                     Text("🎮 Викторины и совместимость")
+                }
+            }
+            item {
+                OutlinedButton(onWidgetSend, Modifier.fillMaxWidth()) {
+                    Text("📸 Фото на виджет партнёра")
                 }
             }
         }
@@ -230,7 +246,7 @@ fun QuizListScreen(vm: AppVm, open: (Int) -> Unit) {
         item { Text("🎮 Викторины", fontSize = 24.sp, fontWeight = FontWeight.Bold); Err(vm) }
         list?.forEach { q ->
             item {
-                Card(Modifier.fillMaxWidth(), onClick = { open(q.id) }) {
+                Card(onClick = { open(q.id) }, modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp)) {
                         Text(q.title, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                         Text("Вопросов: ${q.questions}")
@@ -424,7 +440,7 @@ fun PackListScreen(vm: AppVm, open: (Int) -> Unit) {
         }
         list?.forEach { p ->
             item {
-                Card(Modifier.fillMaxWidth(), onClick = { open(p.id) }) {
+                Card(onClick = { open(p.id) }, modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp), Arrangement.spacedBy(4.dp)) {
                         Text(p.title, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                         Text(p.description)
@@ -482,6 +498,137 @@ fun PackScreen(vm: AppVm, id: Int) {
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+// ---------- настройки ----------
+@Composable
+fun SettingsScreen(
+    vm: AppVm, baseUrl: String,
+    onSaveUrl: (String) -> Unit, onLogout: () -> Unit
+) {
+    var url by remember(baseUrl) { mutableStateOf(baseUrl) }
+    var saved by remember { mutableStateOf(false) }
+    LazyColumn(
+        Modifier.fillMaxSize().padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item {
+            Text("⚙️ Настройки", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            Err(vm)
+        }
+        item {
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), Arrangement.spacedBy(8.dp)) {
+                    Text("Адрес сервера", fontWeight = FontWeight.Bold)
+                    Text("Эмулятор: http://10.0.2.2:8000/  •  Домашний Wi-Fi: http://192.168.1.81:8000/  •  Интернет: https-адрес туннеля/сервера",
+                        color = MaterialTheme.colorScheme.secondary)
+                    OutlinedTextField(url, { url = it; saved = false },
+                        Modifier.fillMaxWidth(), label = { Text("http(s)://…") })
+                    Button({
+                        onSaveUrl(if (url.endsWith("/")) url else "$url/")
+                        saved = true
+                    }) { Text("Сохранить") }
+                    if (saved) Text("Сохранено ✅")
+                }
+            }
+        }
+        item {
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), Arrangement.spacedBy(8.dp)) {
+                    Text("Виджет на рабочий стол", fontWeight = FontWeight.Bold)
+                    Text("Долгое нажатие по рабочему столу → Виджеты → CoupleJoy. Обновляется сам каждые 15 минут, показывает дни, настроение и фото партнёра.")
+                }
+            }
+        }
+        item {
+            OutlinedButton(onLogout, Modifier.fillMaxWidth()) {
+                Text("Выйти из пары на этом устройстве")
+            }
+        }
+    }
+}
+
+// ---------- фото на виджет ----------
+@Composable
+fun WidgetSendScreen(vm: AppVm) {
+    val uid = vm.userId ?: return
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var uri by remember { mutableStateOf<Uri?>(null) }
+    var caption by remember { mutableStateOf("") }
+    var msg by remember { mutableStateOf("") }
+    var mine by remember { mutableStateOf<WidgetPhoto?>(null) }
+    var theirs by remember { mutableStateOf<WidgetPhoto?>(null) }
+    val pick = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) {
+        uri = it
+    }
+    fun reload() = vm.io({}, { ApiClient.api.widget(uid) }) {
+        mine = it.mine
+        theirs = it.partner
+    }
+    LaunchedEffect(uid) { reload() }
+    LazyColumn(
+        Modifier.fillMaxSize().padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item {
+            Text("📸 На виджет партнёра", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            Text("Фото сразу появится на домашнем экране партнёра.")
+            Err(vm)
+        }
+        item {
+            OutlinedButton({ pick.launch("image/*") }, Modifier.fillMaxWidth()) {
+                Text(if (uri == null) "Выбрать фото" else "Выбрать другое")
+            }
+        }
+        uri?.let { u ->
+            item {
+                AsyncImage(u, null, Modifier.fillMaxWidth().height(240.dp),
+                    contentScale = ContentScale.Crop)
+            }
+        }
+        item {
+            OutlinedTextField(caption, { caption = it }, Modifier.fillMaxWidth(),
+                label = { Text("Подпись (необязательно)") })
+            Spacer(Modifier.height(8.dp))
+            Button({
+                scope.launch {
+                    try {
+                        val bytes = ctx.contentResolver.openInputStream(uri!!)!!.readBytes()
+                        val part = MultipartBody.Part.createFormData(
+                            "file", "photo.jpg",
+                            bytes.toRequestBody("image/*".toMediaType()))
+                        val up = ApiClient.api.upload(part)
+                        ApiClient.api.widgetSend(WidgetReq(uid, up.url, caption))
+                        uri = null
+                        caption = ""
+                        msg = "Отправлено! 💞"
+                        reload()
+                    } catch (e: Exception) {
+                        vm.error = e.message
+                    }
+                }
+            }, enabled = uri != null, modifier = Modifier.fillMaxWidth()) {
+                Text("Отправить на виджет 💞")
+            }
+            if (msg.isNotBlank()) Text(msg)
+        }
+        item {
+            Text("Фото партнёра вам:", fontWeight = FontWeight.Bold)
+            val base = ApiClient.api.let {
+                (ctx.getSharedPreferences("cj", android.content.Context.MODE_PRIVATE)
+                    .getString("base_url", ApiClient.DEFAULT_URL)!!).trimEnd('/')
+            }
+            if (theirs != null) {
+                AsyncImage(base + (theirs!!.photo), null,
+                    Modifier.fillMaxWidth().height(240.dp),
+                    contentScale = ContentScale.Crop)
+                if (theirs!!.caption.isNotBlank()) Text(theirs!!.caption)
+            } else {
+                Text("Пока ничего нет")
             }
         }
     }

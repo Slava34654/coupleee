@@ -241,6 +241,18 @@ r = c.get("/icons/nope.png")
 assert r.status_code == 404
 print("pwa OK")
 
+r = c.post("/widget", json={"user_id": A, "photo": "/photos/w1.png",
+                            "caption": "смотри!"})
+assert r.json()["ok"] is True
+r = c.post("/widget", json={"user_id": A, "photo": ""})
+assert r.status_code == 400
+w = c.get("/widget", params={"user_id": B}).json()
+assert w["partner"]["photo"] == "/photos/w1.png", w
+assert w["partner"]["caption"] == "смотри!" and w["mine"] is None
+w = c.get("/widget", params={"user_id": A}).json()
+assert w["mine"]["photo"] == "/photos/w1.png" and w["partner"] is None
+print("widget photos OK")
+
 r = c.delete("/pair", params={"user_id": A})
 assert r.json() == {"ok": True}
 assert r.json() == {"ok": True}
