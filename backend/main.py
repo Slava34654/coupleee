@@ -438,13 +438,13 @@ def touch_streak_days(user_id: int) -> int:
 # ---------------- модели ----------------
 class PairIn(BaseModel):
     name: str
-    birth: str  # YYYY-MM-DD, обязательна
+    birth: str = ""  # YYYY-MM-DD, необязательна (приложение может не слать)
     avatar: str = ""  # URL из POST /photos
 
 class JoinIn(BaseModel):
     name: str
     code: str
-    birth: str
+    birth: str = ""
     avatar: str = ""
 
 class MoodIn(BaseModel):
@@ -518,7 +518,8 @@ def age_of(birth: str):
 
 @app.post("/pair")
 def pair_create(body: PairIn):
-    check_birth(body.birth)
+    if body.birth:
+        check_birth(body.birth)
     con = db()
     code = new_code()
     cur = con.execute("INSERT INTO users(name,pair_code,together_since,birth,avatar) VALUES(?,?,?,?,?)",
@@ -530,7 +531,8 @@ def pair_create(body: PairIn):
 
 @app.post("/pair/join")
 async def pair_join(body: JoinIn):
-    check_birth(body.birth)
+    if body.birth:
+        check_birth(body.birth)
     con = db()
     other = con.execute("SELECT * FROM users WHERE pair_code=?",
                         (body.code.strip().upper(),)).fetchone()

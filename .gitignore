@@ -7,3 +7,8 @@ couple_test.db
 bin/*.exe
 bin/*.log
 backend/server.log
+backend/server_*.log
+android/.gradle/
+android/app/build/
+android/.idea/
+android/local.properties
