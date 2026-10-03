@@ -97,7 +97,7 @@ interface Api {
 }
 
 object ApiClient {
-    const val DEFAULT_URL = "http://10.0.2.2:8000/"
+    const val DEFAULT_URL = "https://blue-carrots-count.loca.lt/"
     private fun build(url: String): Api = Retrofit.Builder()
         .baseUrl(url)
         .addConverterFactory(GsonConverterFactory.create())
