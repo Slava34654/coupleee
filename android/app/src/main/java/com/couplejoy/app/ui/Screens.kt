@@ -523,7 +523,7 @@ fun SettingsScreen(
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), Arrangement.spacedBy(8.dp)) {
                     Text("Адрес сервера", fontWeight = FontWeight.Bold)
-                    Text("По умолчанию: https://blue-carrots-count.loca.lt/  •  Эмулятор: http://10.0.2.2:8000/  •  Домашний Wi-Fi: http://192.168.1.81:8000/",
+                    Text("По умолчанию: https://ssssw-sladaqqq.amvera.io/  •  Эмулятор: http://10.0.2.2:8000/  •  Домашний Wi-Fi: http://192.168.1.81:8000/",
                         color = MaterialTheme.colorScheme.secondary)
                     OutlinedTextField(url, { url = it; saved = false },
                         Modifier.fillMaxWidth(), label = { Text("http(s)://…") })
