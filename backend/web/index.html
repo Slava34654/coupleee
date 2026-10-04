@@ -110,6 +110,38 @@
   .row{display:flex; gap:8px; align-items:center;}
   .row .grow{flex:1;}
   .chk{font-size:20px;}
+  /* ===== BEAUTY PACK ===== */
+  body{
+    background:
+      radial-gradient(90% 40% at 85% -5%, rgba(255,93,143,.22) 0%, transparent 60%) fixed,
+      radial-gradient(80% 45% at 8% 0%, rgba(120,80,255,.20) 0%, transparent 60%) fixed,
+      radial-gradient(120% 60% at 50% -10%, var(--glow,#3b2566) 0%, var(--bg) 60%) fixed,
+      var(--bg);
+  }
+  header{border-bottom:1px solid rgba(255,255,255,.06);}
+  header h1{font-size:24px; letter-spacing:.5px;}
+  main{padding:16px 16px 0;}
+  .card{border-radius:22px; border:1px solid rgba(255,255,255,.09);
+    box-shadow:0 10px 30px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.06);}
+  .big{letter-spacing:.3px;}
+  .btn{border-radius:16px; padding:15px;
+    box-shadow:0 6px 20px rgba(255,93,143,.35);}
+  .btn.ghost{box-shadow:none;}
+  nav{gap:2px; padding:8px 6px calc(10px + env(safe-area-inset-bottom));}
+  nav button{min-height:52px; border-radius:14px; font-size:10px; padding:8px 0 6px;}
+  nav button .i{font-size:23px;}
+  nav button.on{background:rgba(255,93,143,.16);}
+  nav button:active{background:rgba(255,255,255,.06);}
+  input,textarea{border-radius:14px; padding:14px;}
+  .mood{border-radius:16px; padding:12px 0; font-size:26px;}
+  .item{border-radius:16px; border:1px solid rgba(255,255,255,.07);}
+  .hero-logo{width:84px; height:84px; border-radius:24px; display:block;
+    margin:2px auto 10px; box-shadow:0 8px 24px rgba(255,93,143,.45);}
+  .code{font-size:38px;}
+  #loader{position:fixed; top:0; left:0; height:3px; width:0; z-index:50;
+    background:linear-gradient(90deg,var(--pink),var(--gold));
+    border-radius:0 3px 3px 0; transition:width .25s ease, opacity .3s; opacity:0;}
+  #loader.show{opacity:1;}
 </style>
 </head>
 <body>
@@ -122,10 +154,12 @@
     <button onclick="switchPair()">🔄 Сменить пару</button>
     <button onclick="leavePair()">💔 Удалить пару</button>
   </div></header>
+<div id="loader"></div>
 <main>
   <!-- ПАРА -->
   <section id="s-pair">
-    <div class="card">
+    <div class="card" style="text-align:center">
+      <img src="/icons/icon-192.png" class="hero-logo" alt="CoupleJoy">
       <div class="big">Ваша пара 👥</div>
       <p class="mut">Один создаёт пару и показывает код, второй вводит его у себя.</p>
       <input id="p-name" placeholder="Ваше имя">
@@ -279,21 +313,32 @@
 
 <script>
 let uid = +(localStorage.getItem("cj_uid") || 0);
+let _spin = 0;
+function spin(d){
+  _spin = Math.max(0, _spin + d);
+  const el = document.getElementById("loader");
+  if(!el) return;
+  el.classList.toggle("show", _spin > 0);
+  el.style.width = _spin > 0 ? "70%" : "0";
+}
 async function req(m, p, b){
-  const r = await fetch(p, {method:m, headers:{"Content-Type":"application/json"},
-                            body: b ? JSON.stringify(b) : undefined});
-  let j = null;
-  try{ j = await r.json(); }catch(e){}
-  if(!r.ok){
-    const msg = (j && j.detail) || ("HTTP " + r.status);
-    if(msg === "user not found"){
-      showPairScreen();
-      throw new Error("Сессия устарела — войдите заново 🙂");
+  spin(1);
+  try{
+    const r = await fetch(p, {method:m, headers:{"Content-Type":"application/json"},
+                              body: b ? JSON.stringify(b) : undefined});
+    let j = null;
+    try{ j = await r.json(); }catch(e){}
+    if(!r.ok){
+      const msg = (j && j.detail) || ("HTTP " + r.status);
+      if(msg === "user not found"){
+        showPairScreen();
+        throw new Error("Сессия устарела — войдите заново 🙂");
+      }
+      if(m !== "GET") alert("Ошибка: " + msg);
+      throw new Error(msg);
     }
-    if(m !== "GET") alert("Ошибка: " + msg);
-    throw new Error(msg);
-  }
-  return j;
+    return j;
+  } finally { spin(-1); }
 }
 function go(s){
   document.getElementById("pairmenu").classList.add("hidden");
