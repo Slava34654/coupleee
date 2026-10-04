@@ -12,6 +12,9 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
+import com.couplejoy.app.widget.WidgetWorker
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -83,6 +86,11 @@ class MainActivity : ComponentActivity() {
                 override fun shouldOverrideUrlLoading(
                     v: WebView, req: WebResourceRequest
                 ): Boolean = false
+
+                override fun onPageFinished(v: WebView, url: String) {
+                    super.onPageFinished(v, url)
+                    syncUidFromWeb()
+                }
             }
             webChromeClient = object : WebChromeClient() {
                 override fun onShowFileChooser(
@@ -122,5 +130,31 @@ class MainActivity : ComponentActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         if (::web.isInitialized) web.saveState(outState)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::web.isInitialized) syncUidFromWeb()
+    }
+
+    /** Мост WebView → виджет: вход живёт в localStorage страницы (cj_uid),
+     *  а виджет читает uid из настроек — копируем туда, чтобы виджет ожил. */
+    private fun syncUidFromWeb() {
+        try {
+            web.evaluateJavascript(
+                "(function(){try{return localStorage.getItem('cj_uid')||''}catch(e){return ''}})()"
+            ) { v ->
+                val uid = v?.trim('"')?.toIntOrNull() ?: -1
+                val prefs = getSharedPreferences("cj", Context.MODE_PRIVATE)
+                if (prefs.getInt("uid", -1) != uid) {
+                    prefs.edit().putInt("uid", uid).apply()
+                    WorkManager.getInstance(this).enqueue(
+                        OneTimeWorkRequestBuilder<WidgetWorker>().build()
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            // WebView ещё не готов — попробуем при следующем onResume
+        }
     }
 }

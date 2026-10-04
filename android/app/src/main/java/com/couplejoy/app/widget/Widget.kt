@@ -24,6 +24,7 @@ import androidx.glance.layout.Alignment
 import androidx.glance.layout.Column
 import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.padding
+import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.work.CoroutineWorker
@@ -100,7 +101,7 @@ class CoupleWidget : GlanceAppWidget() {
                         .clickable(actionStartActivity<MainActivity>()),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text(title, style = TextStyle(fontSize = 15.sp))
+                    Text(title, style = TextStyle(fontSize = 17.sp, fontWeight = FontWeight.Bold))
                     if (photoBitmap != null) {
                         Image(ImageProvider(photoBitmap), contentDescription = "Фото",
                             modifier = androidx.glance.GlanceModifier.defaultWeight())
