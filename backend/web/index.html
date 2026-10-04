@@ -254,6 +254,17 @@
       <button class="btn" onclick="addEvent()">➕ Добавить</button></div>
     <div id="e-list"></div>
   </section>
+
+  <!-- ВИДЖЕТ ПАРТНЁРА -->
+  <section id="s-widget" class="hidden">
+    <div class="card"><div class="big">🖼️ Фото на виджет партнёра</div>
+      <p class="mut">Фото появится на виджете на рабочем столе партнёра (виджет обновляется сам каждые 15 минут).</p>
+      <input type="file" id="w-f" accept="image/*" onchange="previewWidget(this)">
+      <img id="w-prev" class="hidden" style="width:100%;border-radius:12px;margin-top:6px">
+      <input id="w-c" placeholder="Подпись (необязательно)">
+      <button class="btn" onclick="sendWidget()">💌 Отправить на виджет</button></div>
+    <div class="card"><div class="big">Что сейчас на виджетах</div><div id="w-list">…</div></div>
+  </section>
 </main>
 
 <nav id="tabs" class="hidden">
@@ -263,6 +274,7 @@
   <button data-s="ideas" onclick="go('ideas')"><span class="i">💡</span>Идеи</button>
   <button data-s="journal" onclick="go('journal')"><span class="i">📖</span>Журнал</button>
   <button data-s="events" onclick="go('events')"><span class="i">⏳</span>События</button>
+  <button data-s="widget" onclick="go('widget')"><span class="i">🖼️</span>Виджет</button>
 </nav>
 
 <script>
@@ -290,7 +302,7 @@ function go(s){
   document.querySelectorAll("nav button").forEach(b =>
     b.classList.toggle("on", b.dataset.s === s));
   ({home:loadHome, daily:loadDaily, quiz:showQuizList, packs:showPackList, ideas:loadIdeas,
-    journal:loadJournal, events:loadEvents, theme:renderThemes}[s] || (()=>{}))();
+    journal:loadJournal, events:loadEvents, theme:renderThemes, widget:loadWidget}[s] || (()=>{}))();
   window.scrollTo(0,0);
 }
 function enter(){ document.getElementById("tabs").classList.remove("hidden");
@@ -782,6 +794,37 @@ async function addEvent(){
 async function delEvent(id){
   if(!confirm("Удалить событие?")) return;
   await fetch(`/events/${id}?user_id=${uid}`, {method:"DELETE"}); loadEvents();
+}
+
+/* фото на виджет партнёра */
+function previewWidget(input){
+  const img = document.getElementById("w-prev");
+  if(input.files && input.files[0]){
+    img.src = URL.createObjectURL(input.files[0]);
+    img.classList.remove("hidden");
+  } else img.classList.add("hidden");
+}
+async function loadWidget(){
+  const w = await req("GET", `/widget?user_id=${uid}`);
+  const card = (t, p) => p
+    ? `<div class="item"><b>${t}</b><br><img src="${p.photo}" style="width:100%;border-radius:12px;margin:6px 0" loading="lazy"><br><span class="mut">${p.caption || ""} • ${p.ts.slice(0,16).replace("T"," ")}</span></div>`
+    : `<p class="mut">${t}: пока нет фото</p>`;
+  document.getElementById("w-list").innerHTML =
+    card("💜 На виджете партнёра", w.partner) + card("🪞 На моём виджете", w.mine);
+}
+async function sendWidget(){
+  const f = document.getElementById("w-f");
+  if(!f.files || !f.files[0]) return alert("Выбери фото");
+  let photo = "";
+  try{ photo = await uploadPhoto(f.files[0]); }
+  catch(e){ return alert("Фото не загрузилось: " + e.message); }
+  await req("POST","/widget",{user_id:uid, photo,
+    caption:document.getElementById("w-c").value});
+  f.value = "";
+  document.getElementById("w-c").value = "";
+  document.getElementById("w-prev").classList.add("hidden");
+  alert("Отправлено 💌");
+  loadWidget();
 }
 
 if(uid) enter();
