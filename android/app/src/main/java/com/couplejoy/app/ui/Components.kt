@@ -36,15 +36,24 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.SelectableDates
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -60,11 +69,14 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.couplejoy.app.AppVm
 import kotlinx.coroutines.delay
 
@@ -287,8 +299,7 @@ fun Pill(text: String, tint: Color, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun Avatar(letter: String, size: Dp = 52.dp, dim: Boolean = false) {
-    val x = LocalCj.current
+fun Avatar(letter: String, size: Dp = 52.dp, dim: Boolean = false, photo: String? = null) {
     Box(
         Modifier.size(size).clip(CircleShape)
             .background(
@@ -298,10 +309,73 @@ fun Avatar(letter: String, size: Dp = 52.dp, dim: Boolean = false) {
             .border(1.5.dp, Color.White.copy(alpha = 0.5f), CircleShape),
         Alignment.Center
     ) {
-        Text(
-            letter.take(1).uppercase().ifBlank { "?" },
-            color = Color.White, fontSize = (size.value * 0.42f).sp, fontWeight = FontWeight.Bold
+        if (!photo.isNullOrBlank()) {
+            AsyncImage(
+                resolvePhoto(LocalContext.current, photo), null,
+                Modifier.fillMaxSize().clip(CircleShape),
+                contentScale = ContentScale.Crop
+            )
+        } else {
+            Text(
+                letter.take(1).uppercase().ifBlank { "?" },
+                color = Color.White, fontSize = (size.value * 0.42f).sp, fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+/** Поле выбора даты через календарь. value — ГГГГ-ММ-ДД или пусто. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DateField(
+    label: String,
+    value: String,
+    onPick: (String) -> Unit,
+    modifier: Modifier = Modifier.fillMaxWidth()
+) {
+    val x = LocalCj.current
+    var open by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(18.dp)
+    Row(
+        modifier.heightIn(min = 58.dp).clip(shape)
+            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f), shape)
+            .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.16f), shape)
+            .clickable { open = true }
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                if (value.isBlank()) "Выбрать дату" else prettyDate(value),
+                style = MaterialTheme.typography.bodyLarge,
+                color = if (value.isBlank()) MaterialTheme.colorScheme.onSurfaceVariant
+                else MaterialTheme.colorScheme.onSurface
+            )
+        }
+        Icon(Icons.Rounded.CalendarMonth, null, tint = x.accentA)
+    }
+    if (open) {
+        val limit = todayUtcMillis()
+        val state = rememberDatePickerState(
+            initialSelectedDateMillis = isoToMillis(value),
+            yearRange = 1930..java.time.LocalDate.now().year,
+            selectableDates = object : SelectableDates {
+                override fun isSelectableDate(utcTimeMillis: Long): Boolean = utcTimeMillis <= limit
+            }
         )
+        DatePickerDialog(
+            onDismissRequest = { open = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    state.selectedDateMillis?.let { onPick(millisToIso(it)) }
+                    open = false
+                }) { Text("Готово", color = x.accentA) }
+            },
+            dismissButton = {
+                TextButton(onClick = { open = false }) { Text("Отмена", color = x.accentA) }
+            }
+        ) { DatePicker(state) }
     }
 }
 

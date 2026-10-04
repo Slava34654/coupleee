@@ -4,6 +4,7 @@ import okhttp3.MultipartBody
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.Body
+import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.Multipart
 import retrofit2.http.POST
@@ -62,6 +63,10 @@ data class PackResp(val id: Int, val title: String, val description: String,
                    val questions: List<PackQ>)
 data class PackAnsReq(val user_id: Int, val qid: Int, val text: String = "",
                       val photo: String = "")
+data class LocationReq(val user_id: Int, val lat: Double, val lon: Double)
+data class DistanceResp(val sharing: Boolean, val partner_sharing: Boolean,
+                        val km: Double?, val partner_name: String? = null,
+                        val partner_age_min: Int? = null)
 
 interface Api {
     @POST("pair") suspend fun pair(@Body b: PairReq): PairResp
@@ -94,6 +99,9 @@ interface Api {
     @Multipart @POST("photos") suspend fun upload(@Part file: MultipartBody.Part): PhotoResp
     @POST("widget") suspend fun widgetSend(@Body b: WidgetReq): OkResp
     @GET("widget") suspend fun widget(@Query("user_id") u: Int): WidgetResp
+    @POST("location") suspend fun locationSend(@Body b: LocationReq): OkResp
+    @DELETE("location") suspend fun locationStop(@Query("user_id") u: Int): OkResp
+    @GET("distance") suspend fun distance(@Query("user_id") u: Int): DistanceResp
 }
 
 object ApiClient {

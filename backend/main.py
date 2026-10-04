@@ -13,6 +13,7 @@ from typing import Optional, List
 import sqlite3
 import datetime
 import json
+import math
 import os
 import random
 import string
@@ -272,6 +273,10 @@ def init_db():
         c.execute("ALTER TABLE users ADD COLUMN birth TEXT DEFAULT ''")
     if "avatar" not in cols_u:
         c.execute("ALTER TABLE users ADD COLUMN avatar TEXT DEFAULT ''")
+    # геопозиция для виджета «расстояние» (хранится только последняя точка)
+    c.execute("CREATE TABLE IF NOT EXISTS locations("
+              "user_id INTEGER PRIMARY KEY, lat REAL NOT NULL, "
+              "lon REAL NOT NULL, ts TEXT NOT NULL)")
     for q in QUIZZES:
         row = c.execute("SELECT id FROM quizzes WHERE title=?", (q["title"],)).fetchone()
         if row:
@@ -495,6 +500,11 @@ class WidgetIn(BaseModel):
 
 class TapIn(BaseModel):
     user_id: int
+
+class LocationIn(BaseModel):
+    user_id: int
+    lat: float
+    lon: float
 
 # ---------------- pairing / профиль ----------------
 def new_code():
@@ -763,8 +773,10 @@ def pair_leave(user_id: int):
     me, partner = couple_of(user_id)
     con = db()
     con.execute("UPDATE users SET partner_id=NULL WHERE id=?", (user_id,))
+    con.execute("DELETE FROM locations WHERE user_id=?", (user_id,))
     if partner:
         con.execute("UPDATE users SET partner_id=NULL WHERE id=?", (partner["id"],))
+        con.execute("DELETE FROM locations WHERE user_id=?", (partner["id"],))
     con.commit()
     con.close()
     return {"ok": True}
@@ -1148,3 +1160,63 @@ async def event_del(eid: int, user_id: int):
     con.close()
     await wsman.ping_couple(user_id, "events")
     return {"ok": True}
+
+# ---------------- расстояние между партнёрами ----------------
+# Приватность: хранится только последняя точка каждого (округлена до ~100 м),
+# координаты партнёра клиенту НЕ отдаются — только расстояние. Работает лишь когда
+# делятся оба. Выключение (DELETE /location) стирает точку.
+def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    r = 6371.0088
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp = p2 - p1
+    dl = math.radians(lon2 - lon1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * r * math.asin(min(1.0, math.sqrt(a)))
+
+def minutes_ago(ts: str) -> Optional[int]:
+    try:
+        then = datetime.datetime.fromisoformat(ts)
+    except ValueError:
+        return None
+    return max(0, int((datetime.datetime.now() - then).total_seconds() // 60))
+
+@app.post("/location")
+async def location_set(body: LocationIn):
+    couple_of(body.user_id)  # 404, если пользователя нет
+    if not (-90 <= body.lat <= 90 and -180 <= body.lon <= 180):
+        raise HTTPException(400, "bad coordinates")
+    now = datetime.datetime.now().isoformat(timespec="seconds")
+    con = db()
+    con.execute("INSERT OR REPLACE INTO locations(user_id,lat,lon,ts) VALUES(?,?,?,?)",
+                (body.user_id, round(body.lat, 3), round(body.lon, 3), now))
+    con.commit()
+    con.close()
+    return {"ok": True}
+
+@app.delete("/location")
+def location_stop(user_id: int):
+    couple_of(user_id)
+    con = db()
+    con.execute("DELETE FROM locations WHERE user_id=?", (user_id,))
+    con.commit()
+    con.close()
+    return {"ok": True}
+
+@app.get("/distance")
+def distance(user_id: int):
+    me, partner = couple_of(user_id)
+    con = db()
+    mine = con.execute("SELECT lat,lon,ts FROM locations WHERE user_id=?",
+                       (user_id,)).fetchone()
+    theirs = con.execute("SELECT lat,lon,ts FROM locations WHERE user_id=?",
+                         (partner["id"],)).fetchone() if partner else None
+    con.close()
+    out = {"sharing": mine is not None,
+           "partner_sharing": theirs is not None,
+           "km": None,
+           "partner_name": partner["name"] if partner else None,
+           "partner_age_min": minutes_ago(theirs["ts"]) if theirs else None}
+    if mine is not None and theirs is not None:
+        out["km"] = round(haversine_km(mine["lat"], mine["lon"],
+                                       theirs["lat"], theirs["lon"]), 1)
+    return out
