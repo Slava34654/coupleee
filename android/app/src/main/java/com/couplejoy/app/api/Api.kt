@@ -18,14 +18,18 @@ const val BASE_URL = "http://10.0.2.2:8000/"
 
 // ---------- модели (имена полей = JSON бэкенда) ----------
 data class PairResp(val user_id: Int, val pair_code: String?, val partner_id: Int? = null)
-data class PairReq(val name: String, val birth: String = "", val avatar: String = "")
+data class PairReq(val name: String, val birth: String = "", val avatar: String = "",
+                   val since: String = "")
 data class JoinReq(val name: String, val code: String, val birth: String = "", val avatar: String = "")
 data class MoodInfo(val mood: String, val note: String, val ts: String)
 data class Partner(val id: Int, val name: String, val birth: String = "",
                   val avatar: String = "", val age: Int? = null)
 data class MeResp(val id: Int, val name: String, val pair_code: String,
                  val partner: Partner?, val days_together: Int, val streak: Int,
-                 val my_mood: MoodInfo?, val partner_mood: MoodInfo?)
+                 val my_mood: MoodInfo?, val partner_mood: MoodInfo?,
+                 val together_since: String = "")
+data class TogetherIn(val user_id: Int, val date: String)
+data class TogetherOut(val date: String, val days: Int)
 data class MoodReq(val user_id: Int, val mood: String, val note: String = "")
 data class OkResp(val ok: Boolean)
 data class DailyQ(val date: String, val index: Int, val text: String)
@@ -107,6 +111,7 @@ interface Api {
     @GET("distance") suspend fun distance(@Query("user_id") u: Int): DistanceResp
     @POST("premium/code") suspend fun premiumCode(@Body b: LinkCodeIn): LinkCode
     @GET("premium") suspend fun premium(@Query("user_id") u: Int): PremiumOut
+    @POST("together") suspend fun together(@Body b: TogetherIn): TogetherOut
 }
 
 object ApiClient {

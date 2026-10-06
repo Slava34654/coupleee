@@ -100,6 +100,7 @@ import com.couplejoy.app.api.QuizAnsReq
 import com.couplejoy.app.api.QuizResp
 import com.couplejoy.app.api.QuizResult
 import com.couplejoy.app.api.QuizShort
+import com.couplejoy.app.api.TogetherIn
 import com.couplejoy.app.api.WidgetPhoto
 import com.couplejoy.app.api.WidgetReq
 import kotlinx.coroutines.launch
@@ -213,14 +214,23 @@ fun PairScreen(vm: AppVm, onDone: (Int, LocalProfile) -> Unit) {
             Spacer(Modifier.height(12.dp))
             DateField("Дата рождения (необязательно)", birth, { birth = it })
             Spacer(Modifier.height(12.dp))
-            DateField("Вместе с…", since, { since = it })
-            Spacer(Modifier.height(6.dp))
-            Text(
-                "Счётчик «дней вместе» будет сам расти каждый день.",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(Modifier.height(14.dp))
+            if (mode == 0) {
+                DateField("Вместе с…", since, { since = it })
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Счётчик «дней вместе» будет сам расти каждый день.",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(14.dp))
+            } else {
+                Text(
+                    "Дату начала отношений вводить не нужно — подтянем её автоматически, у обоих будет одно число.",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(14.dp))
+            }
 
             if (mode == 0) {
                 PrimaryButton(
@@ -230,7 +240,7 @@ fun PairScreen(vm: AppVm, onDone: (Int, LocalProfile) -> Unit) {
                             busy = true
                             try {
                                 val av = avatarUri?.let { uploadImage(ctx, it) } ?: ""
-                                val r = ApiClient.api.pair(PairReq(name, birth, av))
+                                val r = ApiClient.api.pair(PairReq(name, birth, av, since))
                                 avatarUrl = av
                                 myCode = r.pair_code
                                 myUid = r.user_id
@@ -287,13 +297,13 @@ fun PairScreen(vm: AppVm, onDone: (Int, LocalProfile) -> Unit) {
                             try {
                                 val av = avatarUri?.let { uploadImage(ctx, it) } ?: ""
                                 val uid = ApiClient.api.join(JoinReq(name, code, birth, av)).user_id
-                                onDone(uid, LocalProfile(av, birth, since))
+                                onDone(uid, LocalProfile(av, birth, ""))
                             } catch (e: Exception) { vm.error = e.message }
                             busy = false
                         }
                     },
                     Modifier.fillMaxWidth(),
-                    enabled = name.isNotBlank() && code.isNotBlank() && since.isNotBlank() && !busy
+                    enabled = name.isNotBlank() && code.isNotBlank() && !busy
                 )
             }
             Err(vm)
@@ -349,7 +359,7 @@ fun HomeScreen(
         me?.let { m ->
             item {
                 Appear(0) {
-                    val days = daysTogether(profile.since, m.days_together)
+                    val days = m.days_together
                     var shown by remember { mutableStateOf(0) }
                     LaunchedEffect(days) {
                         animate(0f, days.toFloat(), animationSpec = tween(1200)) { v, _ -> shown = v.toInt() }
@@ -384,9 +394,10 @@ fun HomeScreen(
                             style = MaterialTheme.typography.titleMedium,
                             modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center
                         )
-                        if (profile.since.isNotBlank()) {
+                        if (m.together_since.isNotBlank()) {
                             Text(
-                                "с ${prettyDate(profile.since)}", color = Color.White.copy(alpha = 0.8f),
+                                "с ${prettyDate(m.together_since)} • одно число на двоих",
+                                color = Color.White.copy(alpha = 0.8f),
                                 style = MaterialTheme.typography.labelMedium,
                                 modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center
                             )
@@ -399,27 +410,6 @@ fun HomeScreen(
                                     .padding(horizontal = 14.dp, vertical = 6.dp),
                                 color = Color.White, style = MaterialTheme.typography.labelLarge
                             )
-                        }
-                    }
-                }
-            }
-            if (profile.since.isBlank()) {
-                item {
-                    Appear(1) {
-                        SoftCard(Modifier.fillMaxWidth(), onClick = onProfile, padding = 16.dp) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                IconBadge(Icons.Rounded.Favorite)
-                                Spacer(Modifier.width(14.dp))
-                                Column(Modifier.weight(1f)) {
-                                    Text("Выберите дату начала отношений", style = MaterialTheme.typography.titleMedium)
-                                    Text(
-                                        "Счётчик дней будет расти каждый день",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                                Icon(Icons.Rounded.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
                         }
                     }
                 }
@@ -481,7 +471,9 @@ fun ProfileScreen(
     val scope = rememberCoroutineScope()
     var me by remember { mutableStateOf<MeResp?>(null) }
     var busy by remember { mutableStateOf(false) }
-    LaunchedEffect(uid) { vm.io({}, { ApiClient.api.me(uid) }) { me = it } }
+    var savingDate by remember { mutableStateOf(false) }
+    fun reloadMe() = vm.io({}, { ApiClient.api.me(uid) }) { me = it }
+    LaunchedEffect(uid) { reloadMe() }
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { u ->
         if (u != null) scope.launch {
             busy = true
@@ -490,7 +482,7 @@ fun ProfileScreen(
             busy = false
         }
     }
-    val days = daysTogether(profile.since, me?.days_together ?: 0)
+    val days = me?.days_together ?: 0
     ListScreen {
         item {
             Column {
@@ -530,14 +522,28 @@ fun ProfileScreen(
                 SoftCard(Modifier.fillMaxWidth()) {
                     DateField("Дата рождения", profile.birth, { onSave(profile.copy(birth = it)) })
                     Spacer(Modifier.height(12.dp))
-                    DateField("Вместе с…", profile.since, { onSave(profile.copy(since = it)) })
+                    DateField(
+                        "Вместе с… (общая для пары)",
+                        me?.together_since ?: "",
+                        {
+                            scope.launch {
+                                savingDate = true
+                                try {
+                                    ApiClient.api.together(TogetherIn(uid, it))
+                                    reloadMe()
+                                } catch (e: Exception) { vm.error = e.message }
+                                savingDate = false
+                            }
+                        }
+                    )
                     Spacer(Modifier.height(14.dp))
                     Text(
-                        "Дней вместе: $days", style = MaterialTheme.typography.titleMedium, color = x.accentA
+                        if (savingDate) "Сохраняем…" else "Дней вместе: $days",
+                        style = MaterialTheme.typography.titleMedium, color = x.accentA
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "Число растёт само каждый день. Изменения профиля сохраняются на этом устройстве; партнёр видит фото и дату рождения, указанные при входе.",
+                        "Дата общая: поменял один — изменилось у обоих. Число растёт само каждый день. Фото и дата рождения хранятся на этом устройстве; партнёр видит те, что указаны при входе.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

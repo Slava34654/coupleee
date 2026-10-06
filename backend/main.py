@@ -464,6 +464,7 @@ class PairIn(BaseModel):
     name: str
     birth: str = ""  # YYYY-MM-DD, необязательна (приложение может не слать)
     avatar: str = ""  # URL из POST /photos
+    since: str = ""  # дата начала отношений YYYY-MM-DD, иначе сегодня
 
 class JoinIn(BaseModel):
     name: str
@@ -545,14 +546,25 @@ def age_of(birth: str):
     t = datetime.date.today()
     return t.year - b.year - ((t.month, t.day) < (b.month, b.day))
 
+def check_since(since: str) -> str:
+    """Дата начала отношений: YYYY-MM-DD, от 1900 до сегодня."""
+    try:
+        d = datetime.date.fromisoformat(since)
+    except ValueError:
+        raise HTTPException(400, "since must be YYYY-MM-DD")
+    if not (datetime.date(1900, 1, 1) <= d <= datetime.date.today()):
+        raise HTTPException(400, "bad since date")
+    return since
+
 @app.post("/pair")
 def pair_create(body: PairIn):
     if body.birth:
         check_birth(body.birth)
+    since = check_since(body.since) if body.since else today()
     con = db()
     code = new_code()
     cur = con.execute("INSERT INTO users(name,pair_code,together_since,birth,avatar) VALUES(?,?,?,?,?)",
-                      (body.name.strip(), code, today(), body.birth, body.avatar))
+                      (body.name.strip(), code, since, body.birth, body.avatar))
     con.commit()
     uid = cur.lastrowid
     con.close()
@@ -1270,3 +1282,24 @@ def premium_status(user_id: int):
     me, partner = couple_of(user_id)
     until = me["premium_until"] or "" if "premium_until" in me.keys() else ""
     return {"premium": premium_active(until), "until": until}
+
+# ---------------- общая дата «вместе с…» ----------------
+# Единый счётчик для обоих: создатель задаёт при создании пары,
+# потом любой из пары может поменять — меняется у обоих сразу.
+class TogetherIn(BaseModel):
+    user_id: int
+    date: str  # YYYY-MM-DD
+
+@app.post("/together")
+async def together_set(body: TogetherIn):
+    me, partner = couple_of(body.user_id)
+    date = check_since(body.date)
+    con = db()
+    con.execute("UPDATE users SET together_since=? WHERE id=?", (date, body.user_id))
+    if partner:
+        con.execute("UPDATE users SET together_since=? WHERE id=?", (date, partner["id"]))
+    con.commit()
+    con.close()
+    await wsman.ping_couple(body.user_id, "pair")
+    days = (datetime.date.today() - datetime.date.fromisoformat(date)).days
+    return {"date": date, "days": days}
