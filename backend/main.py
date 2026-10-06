@@ -277,6 +277,12 @@ def init_db():
     c.execute("CREATE TABLE IF NOT EXISTS locations("
               "user_id INTEGER PRIMARY KEY, lat REAL NOT NULL, "
               "lon REAL NOT NULL, ts TEXT NOT NULL)")
+    if "premium_until" not in cols_u:
+        c.execute("ALTER TABLE users ADD COLUMN premium_until TEXT DEFAULT ''")
+    # Telegram-привязка для подписки: код связывает аккаунт пары с chat-id
+    c.execute("CREATE TABLE IF NOT EXISTS tg(user_id INTEGER PRIMARY KEY, "
+              "tg_id INTEGER UNIQUE, tg_name TEXT DEFAULT '', "
+              "code TEXT DEFAULT '', ts TEXT DEFAULT '')")
     for q in QUIZZES:
         row = c.execute("SELECT id FROM quizzes WHERE title=?", (q["title"],)).fetchone()
         if row:
@@ -309,6 +315,15 @@ def init_db():
 @app.on_event("startup")
 def startup():
     init_db()
+    token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    if token:
+        try:
+            from backend.bot import run_bot
+        except ImportError:
+            from bot import run_bot
+        import threading
+        threading.Thread(target=run_bot, args=(token,),
+                         daemon=True, name="tg-bot").start()
 
 @app.get("/", include_in_schema=False)
 def webapp():
@@ -1220,3 +1235,34 @@ def distance(user_id: int):
         out["km"] = round(haversine_km(mine["lat"], mine["lon"],
                                        theirs["lat"], theirs["lon"]), 1)
     return out
+
+# ---------------- подписка через Telegram-бота ----------------
+# Приложение просит код (POST /premium/code), пользователь отправляет его
+# боту, бот привязывает chat-id и после оплаты Stars продлевает premium_until.
+class LinkCodeIn(BaseModel):
+    user_id: int
+
+def premium_active(premium_until: str) -> bool:
+    try:
+        return bool(premium_until) and datetime.date.fromisoformat(premium_until) >= datetime.date.today()
+    except ValueError:
+        return False
+
+@app.post("/premium/code")
+def premium_code(body: LinkCodeIn):
+    couple_of(body.user_id)
+    code = new_code()
+    now = datetime.datetime.now().isoformat(timespec="seconds")
+    con = db()
+    con.execute("INSERT INTO tg(user_id,code,ts) VALUES(?,?,?) "
+                "ON CONFLICT(user_id) DO UPDATE SET code=excluded.code, ts=excluded.ts",
+                (body.user_id, code, now))
+    con.commit()
+    con.close()
+    return {"code": code}
+
+@app.get("/premium")
+def premium_status(user_id: int):
+    me, partner = couple_of(user_id)
+    until = me["premium_until"] or "" if "premium_until" in me.keys() else ""
+    return {"premium": premium_active(until), "until": until}
