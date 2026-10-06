@@ -43,6 +43,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.AutoStories
 import androidx.compose.material.icons.rounded.Casino
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Cloud
@@ -1054,7 +1055,7 @@ fun IdeasScreen(vm: AppVm) {
 
 // ---------- журнал ----------
 @Composable
-fun JournalScreen(vm: AppVm) {
+fun JournalScreen(vm: AppVm, onBack: (() -> Unit)? = null) {
     val uid = vm.userId ?: return
     var list by remember { mutableStateOf<List<JournalEntry>?>(null) }
     var title by remember { mutableStateOf("") }
@@ -1065,7 +1066,7 @@ fun JournalScreen(vm: AppVm) {
     ListScreen {
         item {
             Column {
-                ScreenHeader("Общий журнал", "Моменты, которые хочется сохранить")
+                ScreenHeader("Общий журнал", "Моменты, которые хочется сохранить", onBack)
                 Err(vm)
             }
         }
@@ -1243,7 +1244,7 @@ fun PackScreen(vm: AppVm, id: Int, onBack: () -> Unit) {
 fun MoreScreen(
     onProfile: () -> Unit, onQuizzes: () -> Unit, onPacks: () -> Unit,
     onEvents: () -> Unit, onWidget: () -> Unit, onSettings: () -> Unit,
-    onPremium: () -> Unit
+    onPremium: () -> Unit, onJournal: () -> Unit
 ) {
     @Composable
     fun MenuRow(i: Int, icon: androidx.compose.ui.graphics.vector.ImageVector, t: String, s: String, c: () -> Unit) {
@@ -1269,7 +1270,8 @@ fun MoreScreen(
         item { MenuRow(3, Icons.Rounded.HourglassTop, "Обратный отсчёт", "Годовщины и поездки", onEvents) }
         item { MenuRow(4, Icons.Rounded.PhotoCamera, "Фото на виджет", "Порадуйте партнёра", onWidget) }
         item { MenuRow(5, Icons.Rounded.Star, "Premium", "Подписка через Telegram", onPremium) }
-        item { MenuRow(6, Icons.Rounded.Settings, "Настройки", "Тема, сервер, выход", onSettings) }
+        item { MenuRow(6, Icons.Rounded.AutoStories, "Журнал", "Ваши общие моменты", onJournal) }
+        item { MenuRow(7, Icons.Rounded.Settings, "Настройки", "Тема, сервер, выход", onSettings) }
     }
 }
 

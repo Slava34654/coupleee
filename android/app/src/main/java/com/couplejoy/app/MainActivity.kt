@@ -20,11 +20,11 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.AutoStories
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Lightbulb
 import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.QuestionAnswer
+import androidx.compose.material.icons.rounded.Quiz
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -129,10 +129,10 @@ class MainActivity : ComponentActivity() {
 private data class Tab(val route: String, val label: String, val icon: ImageVector)
 
 private val Tabs = listOf(
-    Tab("home", "Главная", Icons.Rounded.Home),
     Tab("daily", "Вопрос", Icons.Rounded.QuestionAnswer),
     Tab("ideas", "Идеи", Icons.Rounded.Lightbulb),
-    Tab("journal", "Журнал", Icons.Rounded.AutoStories),
+    Tab("home", "Главная", Icons.Rounded.Home),
+    Tab("quizzes", "Викторины", Icons.Rounded.Quiz),
     Tab("more", "Ещё", Icons.Rounded.MoreHoriz)
 )
 
@@ -251,7 +251,7 @@ fun CoupleApp(activity: ComponentActivity, vm: AppVm, prefs: SharedPreferences) 
                         DailyScreen(vm, { nav.navigate("quizzes") }, { nav.navigate("packs") })
                     }
                     composable("ideas") { IdeasScreen(vm) }
-                    composable("journal") { JournalScreen(vm) }
+                    composable("journal") { JournalScreen(vm) { nav.popBackStack() } }
                     composable("more") {
                         MoreScreen(
                             onProfile = { nav.navigate("profile") },
@@ -260,11 +260,12 @@ fun CoupleApp(activity: ComponentActivity, vm: AppVm, prefs: SharedPreferences) 
                             onEvents = { nav.navigate("events") },
                             onWidget = { nav.navigate("widget") },
                             onSettings = { nav.navigate("settings") },
-                            onPremium = { nav.navigate("premium") }
+                            onPremium = { nav.navigate("premium") },
+                            onJournal = { nav.navigate("journal") }
                         )
                     }
                     composable("quizzes") {
-                        QuizListScreen(vm, { nav.navigate("quiz/$it") }, { nav.popBackStack() })
+                        QuizListScreen(vm, { nav.navigate("quiz/$it") }, { goTab("home") })
                     }
                     composable(
                         "quiz/{id}",
