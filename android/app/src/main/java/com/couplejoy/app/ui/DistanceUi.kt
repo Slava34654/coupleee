@@ -53,8 +53,9 @@ fun LocationShareCard(vm: AppVm) {
             try {
                 LocationSync.setSharing(ctx, true)
                 on = true
-                if (!LocationSync.push(ctx, uid)) {
-                    vm.error = "Не удалось определить местоположение. Проверьте, что геолокация включена."
+                val fail = LocationSync.push(ctx, uid)
+                if (fail != null) {
+                    vm.error = LocationSync.message(fail)
                 }
                 info = ApiClient.api.distance(uid)
             } catch (e: Exception) {

@@ -20,6 +20,14 @@ import kotlin.coroutines.resume
 
 const val PREF_SHARE_LOC = "share_loc"
 
+/** Почему не получилось определить геопозицию. */
+enum class FailReason { NO_PERMISSION, PROVIDERS_OFF, NO_FIX }
+
+sealed interface LocResult {
+    data class Ok(val loc: Location) : LocResult
+    data class Fail(val reason: FailReason) : LocResult
+}
+
 /** Определение геопозиции и отправка её на сервер. Работает только пока приложение открыто. */
 object LocationSync {
 
@@ -38,21 +46,25 @@ object LocationSync {
             .edit().putBoolean(PREF_SHARE_LOC, on).apply()
     }
 
-    /** Свежая точка: берём недавнюю известную (до 10 мин) или запрашиваем новую (до 10 с). */
+    /** Свежая точка: берём недавнюю известную (до 10 мин) или запрашиваем новую (до 10 с).
+     *  При неудаче возвращает причину вместо тишины. */
     @SuppressLint("MissingPermission")
-    suspend fun currentLocation(ctx: Context): Location? {
-        if (!hasPermission(ctx)) return null
+    suspend fun currentLocation(ctx: Context): LocResult {
+        if (!hasPermission(ctx)) return LocResult.Fail(FailReason.NO_PERMISSION)
         val lm = ctx.getSystemService(Context.LOCATION_SERVICE) as LocationManager
         val providers = try {
             lm.getProviders(true).filter { it != LocationManager.PASSIVE_PROVIDER }
         } catch (e: Exception) { emptyList() }
+        if (providers.isEmpty()) return LocResult.Fail(FailReason.PROVIDERS_OFF)
         val last = providers
             .mapNotNull { runCatching { lm.getLastKnownLocation(it) }.getOrNull() }
             .maxByOrNull { it.time }
-        if (last != null && System.currentTimeMillis() - last.time < 10 * 60_000L) return last
+        if (last != null && System.currentTimeMillis() - last.time < 10 * 60_000L) {
+            return LocResult.Ok(last)
+        }
         val provider = providers.firstOrNull { it == LocationManager.NETWORK_PROVIDER }
             ?: providers.firstOrNull()
-            ?: return last
+            ?: return LocResult.Fail(FailReason.PROVIDERS_OFF)
         val fresh = withTimeoutOrNull(10_000L) {
             suspendCancellableCoroutine<Location?> { cont ->
                 val signal = CancellationSignal()
@@ -66,15 +78,25 @@ object LocationSync {
                 }
             }
         }
-        return fresh ?: last
+        return if (fresh != null) LocResult.Ok(fresh) else LocResult.Fail(FailReason.NO_FIX)
     }
 
-    /** Отправляет свою точку на сервер. true — получилось. */
-    suspend fun push(ctx: Context, uid: Int): Boolean {
-        val loc = currentLocation(ctx) ?: return false
-        ApiClient.api.locationSend(LocationReq(uid, loc.latitude, loc.longitude))
-        refreshDistanceWidget(ctx)
-        return true
+    /** Отправляет свою точку на сервер. null — получилось, иначе причина неудачи. */
+    suspend fun push(ctx: Context, uid: Int): FailReason? {
+        return when (val r = currentLocation(ctx)) {
+            is LocResult.Fail -> r.reason
+            is LocResult.Ok -> {
+                ApiClient.api.locationSend(LocationReq(uid, r.loc.latitude, r.loc.longitude))
+                refreshDistanceWidget(ctx)
+                null
+            }
+        }
+    }
+
+    fun message(reason: FailReason): String = when (reason) {
+        FailReason.NO_PERMISSION -> "Нет доступа к геопозиции. Разрешите доступ в настройках приложения."
+        FailReason.PROVIDERS_OFF -> "Геолокация выключена. Включите её в настройках телефона."
+        FailReason.NO_FIX -> "Не удалось определить местоположение. Попробуйте позже или выйдите на открытое место."
     }
 
     fun refreshDistanceWidget(ctx: Context) {
