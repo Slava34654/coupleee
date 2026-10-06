@@ -283,6 +283,10 @@ def init_db():
     c.execute("CREATE TABLE IF NOT EXISTS tg(user_id INTEGER PRIMARY KEY, "
               "tg_id INTEGER UNIQUE, tg_name TEXT DEFAULT '', "
               "code TEXT DEFAULT '', ts TEXT DEFAULT '')")
+    # Рефералка: кто по чьей ссылке пришёл (rewarded=1 — бонус уже выдан)
+    c.execute("CREATE TABLE IF NOT EXISTS refs(tg_id INTEGER PRIMARY KEY, "
+              "referrer INTEGER NOT NULL, ts TEXT DEFAULT '', "
+              "rewarded INTEGER DEFAULT 0)")
     for q in QUIZZES:
         row = c.execute("SELECT id FROM quizzes WHERE title=?", (q["title"],)).fetchone()
         if row:

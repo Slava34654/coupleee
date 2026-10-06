@@ -24,6 +24,7 @@ BOT_NAME = os.environ.get("TELEGRAM_BOT_NAME", "Enrwine_bot")
 PRICE_STARS = int(os.environ.get("PREMIUM_STARS", "99"))
 PREMIUM_DAYS = int(os.environ.get("PREMIUM_DAYS", "30"))
 ADMIN_IDS = {int(x) for x in os.environ.get("ADMIN_TG_IDS", "").split(",") if x.strip().isdigit()}
+REF_BONUS = int(os.environ.get("REF_BONUS_DAYS", "7"))
 APP_URL = os.environ.get("APP_PUBLIC_URL", "https://ssssw-sladaqqq.amvera.io")
 ICON_URL = APP_URL.rstrip("/") + "/icons/icon-512.png"
 
@@ -126,7 +127,59 @@ def premium_until(user_id):
     return row["premium_until"] if row else ""
 
 
-MENU = [["Купить Premium 💫", "Мой статус ⭐"]]
+MENU = [["Купить Premium 💫", "Мой статус ⭐"], ["Пригласить друга 💌"]]
+
+
+def ref_link(uid):
+    return f"https://t.me/{BOT_NAME}?start=ref_{uid}"
+
+
+def record_ref(tg_id, referrer_uid):
+    """Запомнить, что tg_id пришёл по ссылке пользователя referrer_uid.
+    Возвращает ok/self/nouser/already."""
+    con = db()
+    me = con.execute("SELECT user_id FROM tg WHERE tg_id=?", (tg_id,)).fetchone()
+    if me and me["user_id"] == referrer_uid:
+        con.close()
+        return "self"
+    if not con.execute("SELECT 1 FROM users WHERE id=?", (referrer_uid,)).fetchone():
+        con.close()
+        return "nouser"
+    if con.execute("SELECT 1 FROM refs WHERE tg_id=?", (tg_id,)).fetchone():
+        con.close()
+        return "already"
+    now = datetime.datetime.now().isoformat(timespec="seconds")
+    con.execute("INSERT INTO refs(tg_id,referrer,ts) VALUES(?,?,?)",
+                (tg_id, referrer_uid, now))
+    con.commit()
+    con.close()
+    return "ok"
+
+
+def reward_referrer(payer_tg_id):
+    """Бонус пригласившему за ОПЛАТУ. Возвращает (tg_id_реферера|None, until)."""
+    con = db()
+    r = con.execute("SELECT referrer FROM refs WHERE tg_id=? AND rewarded=0",
+                    (payer_tg_id,)).fetchone()
+    con.close()
+    if not r:
+        return None
+    until = grant_premium(r["referrer"], REF_BONUS)
+    con = db()
+    con.execute("UPDATE refs SET rewarded=1 WHERE tg_id=?", (payer_tg_id,))
+    con.commit()
+    rt = con.execute("SELECT tg_id FROM tg WHERE user_id=?", (r["referrer"],)).fetchone()
+    con.close()
+    return (rt["tg_id"] if rt and rt["tg_id"] else None), until
+
+
+def ref_stats(uid):
+    con = db()
+    inv = con.execute("SELECT COUNT(*) n FROM refs WHERE referrer=?", (uid,)).fetchone()["n"]
+    earn = con.execute("SELECT COUNT(*) n FROM refs WHERE referrer=? AND rewarded=1",
+                       (uid,)).fetchone()["n"]
+    con.close()
+    return inv, earn
 
 
 def is_admin(tg_id):
@@ -234,6 +287,17 @@ def handle_message(token, m):
                  f"✅ <b>Оплата прошла!</b>\n\n💫 Premium активен до <b>{until}</b>.\n"
                  f"Открой приложение и нажми «Обновить статус» — функции уже разблокированы 💞",
                  MENU)
+            try:
+                bonus = reward_referrer(chat)
+                if bonus:
+                    rtg, runtil = bonus
+                    if rtg:
+                        send(token, rtg,
+                             f"🎉 <b>По твоей ссылке купили Premium!</b>\n"
+                             f"Тебе +{REF_BONUS} дней — теперь до <b>{runtil}</b> 💫",
+                             MENU)
+            except Exception:
+                pass
         else:
             send(token, chat,
                  "Оплата прошла, но аккаунт не привязан. Пришли код из приложения "
@@ -241,7 +305,22 @@ def handle_message(token, m):
         return
     if text.startswith("/start"):
         parts = text.split(maxsplit=1)
-        if len(parts) > 1:
+        if len(parts) > 1 and parts[1].startswith("ref_"):
+            try:
+                who = int(parts[1][4:])
+            except ValueError:
+                who = -1
+            res = record_ref(chat, who) if who > 0 else "nouser"
+            send(token, chat,
+                 "🎉 <b>Ты пришёл по приглашению!</b> Когда купишь Premium — "
+                 "друг получит бонусные дни 💫\n\n"
+                 "Теперь привяжи свой аккаунт: возьми код в приложении "
+                 "(<b>Ещё → Premium → «Показать код»</b>) и пришли его сюда."
+                 if res == "ok" else
+                 "Привязка не удалась, но ты всё равно можешь пользоваться ботом: "
+                 "пришли код из приложения (<b>Ещё → Premium</b>).",
+                 MENU)
+        elif len(parts) > 1:
             ok, msg, _ = link_code(chat, tg_name, parts[1])
             send(token, chat, msg if ok else "❌ " + msg, MENU)
         else:
@@ -273,6 +352,21 @@ def handle_message(token, m):
              f"💫 <b>Premium активен до {until}</b> ✅\nПриятного пользования вдвоём 💞"
              if active else
              "Premium не активен 😔\nНажми «Купить Premium 💫» — это минута.",
+             MENU)
+        return
+    if text == "Пригласить друга 💌":
+        uid = user_by_tg(chat)
+        if not uid:
+            send(token, chat,
+                 "Сначала привяжи аккаунт: пришли код из приложения (<b>Ещё → Premium</b>).",
+                 MENU)
+            return
+        inv, earn = ref_stats(uid)
+        send(token, chat,
+             f"💌 <b>Твоя ссылка:</b>\n<code>{ref_link(uid)}</code>\n\n"
+             f"Друг ставит приложение, привязывается и покупает Premium — "
+             f"тебе <b>+{REF_BONUS} дней</b> за каждого 🎁\n"
+             f"Пришло: {inv} • Купили: {earn} • Заработано дней: {earn * REF_BONUS}",
              MENU)
         return
     if text == "Купить Premium 💫":

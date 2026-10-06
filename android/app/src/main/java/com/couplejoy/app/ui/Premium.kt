@@ -103,6 +103,32 @@ fun PremiumScreen(vm: AppVm, onBack: () -> Unit) {
             }
         }
         item {
+            Appear(2) {
+                SoftCard(Modifier.fillMaxWidth()) {
+                    Text("Пригласить друга 💌", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Друг ставит приложение и покупает Premium — тебе +7 дней бесплатно за каждого.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    PrimaryButton(
+                        "Пригласить друга",
+                        {
+                            ctx.startActivity(
+                                Intent(
+                                    Intent.ACTION_VIEW,
+                                    Uri.parse("$BOT_LINK?start=ref_$uid")
+                                )
+                            )
+                        },
+                        Modifier.fillMaxWidth()
+                    )
+                }
+            }
+        }
+        item {
             Appear(1) {
                 SoftCard(Modifier.fillMaxWidth()) {
                     Text("Привязка Telegram", style = MaterialTheme.typography.titleMedium)
