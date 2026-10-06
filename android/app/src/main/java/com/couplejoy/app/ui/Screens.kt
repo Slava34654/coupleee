@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
@@ -46,8 +47,10 @@ import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.HourglassTop
 import androidx.compose.material.icons.rounded.LightMode
 import androidx.compose.material.icons.rounded.PhotoCamera
+import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Quiz
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.Style
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -100,13 +103,10 @@ import com.couplejoy.app.api.QuizShort
 import com.couplejoy.app.api.WidgetPhoto
 import com.couplejoy.app.api.WidgetReq
 import kotlinx.coroutines.launch
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.MultipartBody
-import okhttp3.RequestBody.Companion.toRequestBody
 
 // ---------- общий каркас списка ----------
 @Composable
-private fun ListScreen(content: LazyListScope.() -> Unit) {
+fun ListScreen(content: LazyListScope.() -> Unit) {
     LazyColumn(
         Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 28.dp),
@@ -138,16 +138,24 @@ private fun ActionTile(
 
 // ---------- вход / создание пары ----------
 @Composable
-fun PairScreen(vm: AppVm, onDone: (Int) -> Unit) {
+fun PairScreen(vm: AppVm, onDone: (Int, LocalProfile) -> Unit) {
     val x = LocalCj.current
+    val ctx = LocalContext.current
     var name by remember { mutableStateOf("") }
     var code by remember { mutableStateOf("") }
     var myCode by remember { mutableStateOf<String?>(null) }
     var myUid by remember { mutableStateOf<Int?>(null) }
+    var birth by remember { mutableStateOf("") }
+    var since by remember { mutableStateOf("") }
+    var avatarUri by remember { mutableStateOf<Uri?>(null) }
+    var avatarUrl by remember { mutableStateOf("") }
     var mode by remember { mutableStateOf(0) }
     var busy by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
+    val pick = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) {
+        if (it != null) avatarUri = it
+    }
 
     val pulse = rememberInfiniteTransition(label = "logo")
     val ps by pulse.animateFloat(
@@ -180,9 +188,40 @@ fun PairScreen(vm: AppVm, onDone: (Int) -> Unit) {
         Spacer(Modifier.height(4.dp))
         SoftCard(Modifier.fillMaxWidth()) {
             Segmented(listOf("Создать пару", "Присоединиться"), mode) { mode = it }
+            Spacer(Modifier.height(16.dp))
+
+            // фото профиля
+            Box(
+                Modifier.align(Alignment.CenterHorizontally).size(104.dp).clip(CircleShape)
+                    .background(x.accentA.copy(alpha = 0.10f), CircleShape)
+                    .border(2.dp, x.accentA.copy(alpha = 0.5f), CircleShape)
+                    .clickable { pick.launch("image/*") },
+                Alignment.Center
+            ) {
+                val u = avatarUri
+                if (u == null) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Rounded.PhotoCamera, null, tint = x.accentA, modifier = Modifier.size(30.dp))
+                        Text("Фото", color = x.accentA, style = MaterialTheme.typography.labelMedium)
+                    }
+                } else {
+                    AsyncImage(u, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                }
+            }
             Spacer(Modifier.height(14.dp))
             CjField(name, { name = it }, "Ваше имя")
             Spacer(Modifier.height(12.dp))
+            DateField("Дата рождения (необязательно)", birth, { birth = it })
+            Spacer(Modifier.height(12.dp))
+            DateField("Вместе с…", since, { since = it })
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "Счётчик «дней вместе» будет сам расти каждый день.",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(14.dp))
+
             if (mode == 0) {
                 PrimaryButton(
                     if (busy) "Создаём…" else "Создать пару",
@@ -190,14 +229,17 @@ fun PairScreen(vm: AppVm, onDone: (Int) -> Unit) {
                         scope.launch {
                             busy = true
                             try {
-                                val r = ApiClient.api.pair(PairReq(name))
+                                val av = avatarUri?.let { uploadImage(ctx, it) } ?: ""
+                                val r = ApiClient.api.pair(PairReq(name, birth, av))
+                                avatarUrl = av
                                 myCode = r.pair_code
                                 myUid = r.user_id
                             } catch (e: Exception) { vm.error = e.message }
                             busy = false
                         }
                     },
-                    Modifier.fillMaxWidth(), enabled = name.isNotBlank() && !busy
+                    Modifier.fillMaxWidth(),
+                    enabled = name.isNotBlank() && since.isNotBlank() && !busy && myUid == null
                 )
                 myCode?.let { c ->
                     Spacer(Modifier.height(16.dp))
@@ -223,7 +265,11 @@ fun PairScreen(vm: AppVm, onDone: (Int) -> Unit) {
                         Spacer(Modifier.height(12.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             GhostButton("Копировать", { clipboard.setText(AnnotatedString(c)) }, Modifier.weight(1f))
-                            PrimaryButton("Войти", { myUid?.let(onDone) }, Modifier.weight(1f))
+                            PrimaryButton(
+                                "Войти",
+                                { myUid?.let { onDone(it, LocalProfile(avatarUrl, birth, since)) } },
+                                Modifier.weight(1f)
+                            )
                         }
                     }
                 }
@@ -239,12 +285,15 @@ fun PairScreen(vm: AppVm, onDone: (Int) -> Unit) {
                         scope.launch {
                             busy = true
                             try {
-                                onDone(ApiClient.api.join(JoinReq(name, code)).user_id)
+                                val av = avatarUri?.let { uploadImage(ctx, it) } ?: ""
+                                val uid = ApiClient.api.join(JoinReq(name, code, birth, av)).user_id
+                                onDone(uid, LocalProfile(av, birth, since))
                             } catch (e: Exception) { vm.error = e.message }
                             busy = false
                         }
                     },
-                    Modifier.fillMaxWidth(), enabled = name.isNotBlank() && code.isNotBlank() && !busy
+                    Modifier.fillMaxWidth(),
+                    enabled = name.isNotBlank() && code.isNotBlank() && since.isNotBlank() && !busy
                 )
             }
             Err(vm)
@@ -254,9 +303,33 @@ fun PairScreen(vm: AppVm, onDone: (Int) -> Unit) {
 
 // ---------- главная ----------
 @Composable
-fun HomeScreen(vm: AppVm, toQuizzes: () -> Unit, onWidgetSend: () -> Unit) {
+private fun HeroPerson(
+    name: String, photo: String?, birthText: String?, dim: Boolean, onClick: () -> Unit
+) {
+    Column(Modifier.width(112.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(Modifier.clip(CircleShape).clickable(onClick = onClick)) {
+            Avatar(name, 72.dp, dim, photo)
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            name, color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1,
+            style = MaterialTheme.typography.titleMedium
+        )
+        if (birthText != null) {
+            Text(
+                birthText, color = Color.White.copy(alpha = 0.85f),
+                style = MaterialTheme.typography.labelMedium, maxLines = 1
+            )
+        }
+    }
+}
+
+@Composable
+fun HomeScreen(
+    vm: AppVm, profile: LocalProfile,
+    toQuizzes: () -> Unit, onWidgetSend: () -> Unit, onProfile: () -> Unit
+) {
     val uid = vm.userId ?: return
-    val x = LocalCj.current
     var me by remember { mutableStateOf<MeResp?>(null) }
     var loading by remember { mutableStateOf(true) }
     val scope = rememberCoroutineScope()
@@ -276,21 +349,33 @@ fun HomeScreen(vm: AppVm, toQuizzes: () -> Unit, onWidgetSend: () -> Unit) {
         me?.let { m ->
             item {
                 Appear(0) {
+                    val days = daysTogether(profile.since, m.days_together)
+                    var shown by remember { mutableStateOf(0) }
+                    LaunchedEffect(days) {
+                        animate(0f, days.toFloat(), animationSpec = tween(1200)) { v, _ -> shown = v.toInt() }
+                    }
                     SoftCard(Modifier.fillMaxWidth(), accent = true, padding = 22.dp) {
                         Row(
                             Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalAlignment = Alignment.Top
                         ) {
-                            Avatar(m.name)
-                            Spacer(Modifier.width(12.dp))
-                            Icon(Icons.Rounded.Favorite, null, tint = Color.White, modifier = Modifier.size(26.dp))
-                            Spacer(Modifier.width(12.dp))
-                            Avatar(m.partner?.name ?: "?", dim = m.partner == null)
+                            HeroPerson(
+                                m.name, profile.avatar, birthLine(profile.birth), false, onProfile
+                            )
+                            Icon(
+                                Icons.Rounded.Favorite, null, tint = Color.White,
+                                modifier = Modifier.padding(top = 24.dp, start = 6.dp, end = 6.dp).size(26.dp)
+                            )
+                            HeroPerson(
+                                m.partner?.name ?: "Ждём…", m.partner?.avatar,
+                                m.partner?.let { birthLine(it.birth, it.age) },
+                                m.partner == null, onProfile
+                            )
                         }
-                        Spacer(Modifier.height(14.dp))
+                        Spacer(Modifier.height(16.dp))
                         Text(
-                            "${m.days_together}", color = Color.White, fontSize = 60.sp,
+                            "$shown", color = Color.White, fontSize = 60.sp,
                             fontWeight = FontWeight.ExtraBold, modifier = Modifier.fillMaxWidth(),
                             textAlign = TextAlign.Center
                         )
@@ -299,6 +384,13 @@ fun HomeScreen(vm: AppVm, toQuizzes: () -> Unit, onWidgetSend: () -> Unit) {
                             style = MaterialTheme.typography.titleMedium,
                             modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center
                         )
+                        if (profile.since.isNotBlank()) {
+                            Text(
+                                "с ${prettyDate(profile.since)}", color = Color.White.copy(alpha = 0.8f),
+                                style = MaterialTheme.typography.labelMedium,
+                                modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center
+                            )
+                        }
                         Spacer(Modifier.height(12.dp))
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                             Text(
@@ -308,13 +400,27 @@ fun HomeScreen(vm: AppVm, toQuizzes: () -> Unit, onWidgetSend: () -> Unit) {
                                 color = Color.White, style = MaterialTheme.typography.labelLarge
                             )
                         }
-                        Spacer(Modifier.height(10.dp))
-                        Text(
-                            "${m.name}" + (m.partner?.let { "  •  ${it.name}" } ?: "  •  ждём партнёра…"),
-                            color = Color.White.copy(alpha = 0.85f),
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center
-                        )
+                    }
+                }
+            }
+            if (profile.since.isBlank()) {
+                item {
+                    Appear(1) {
+                        SoftCard(Modifier.fillMaxWidth(), onClick = onProfile, padding = 16.dp) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconBadge(Icons.Rounded.Favorite)
+                                Spacer(Modifier.width(14.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text("Выберите дату начала отношений", style = MaterialTheme.typography.titleMedium)
+                                    Text(
+                                        "Счётчик дней будет расти каждый день",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Icon(Icons.Rounded.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
                     }
                 }
             }
@@ -357,6 +463,84 @@ fun HomeScreen(vm: AppVm, toQuizzes: () -> Unit, onWidgetSend: () -> Unit) {
                             "Фото партнёру", "На его виджет", onWidgetSend
                         )
                     }
+                }
+            }
+        }
+    }
+}
+
+// ---------- профиль ----------
+@Composable
+fun ProfileScreen(
+    vm: AppVm, profile: LocalProfile,
+    onSave: (LocalProfile) -> Unit, onBack: () -> Unit
+) {
+    val uid = vm.userId ?: return
+    val x = LocalCj.current
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var me by remember { mutableStateOf<MeResp?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    LaunchedEffect(uid) { vm.io({}, { ApiClient.api.me(uid) }) { me = it } }
+    val pick = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { u ->
+        if (u != null) scope.launch {
+            busy = true
+            try { onSave(profile.copy(avatar = uploadImage(ctx, u))) }
+            catch (e: Exception) { vm.error = e.message }
+            busy = false
+        }
+    }
+    val days = daysTogether(profile.since, me?.days_together ?: 0)
+    ListScreen {
+        item {
+            Column {
+                ScreenHeader("Профиль", null, onBack)
+                Err(vm)
+            }
+        }
+        item {
+            Appear(0) {
+                SoftCard(Modifier.fillMaxWidth(), padding = 22.dp) {
+                    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Box(
+                            Modifier.size(128.dp).clip(CircleShape).background(x.brand())
+                                .clickable { pick.launch("image/*") },
+                            Alignment.Center
+                        ) {
+                            Avatar(me?.name ?: "?", 128.dp, photo = profile.avatar)
+                        }
+                        Spacer(Modifier.height(10.dp))
+                        Text(me?.name ?: "…", style = MaterialTheme.typography.titleLarge)
+                        birthLine(profile.birth)?.let {
+                            Text(it, style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        GhostButton(
+                            if (busy) "Загружаем…" else if (profile.avatar.isBlank()) "Добавить фото" else "Сменить фото",
+                            { if (!busy) pick.launch("image/*") },
+                            icon = Icons.Rounded.PhotoCamera
+                        )
+                    }
+                }
+            }
+        }
+        item {
+            Appear(1) {
+                SoftCard(Modifier.fillMaxWidth()) {
+                    DateField("Дата рождения", profile.birth, { onSave(profile.copy(birth = it)) })
+                    Spacer(Modifier.height(12.dp))
+                    DateField("Вместе с…", profile.since, { onSave(profile.copy(since = it)) })
+                    Spacer(Modifier.height(14.dp))
+                    Text(
+                        "Дней вместе: $days", style = MaterialTheme.typography.titleMedium, color = x.accentA
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Число растёт само каждый день. Изменения профиля сохраняются на этом устройстве; партнёр видит фото и дату рождения, указанные при входе.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
         }
@@ -820,10 +1004,11 @@ fun JournalScreen(vm: AppVm) {
 
 // ---------- темы вопросов ----------
 @Composable
-fun PackListScreen(vm: AppVm, open: (Int) -> Unit, onBack: () -> Unit) {
+fun PackListScreen(vm: AppVm, open: (Int) -> Unit, onBack: () -> Unit, onPremium: () -> Unit) {
     val uid = vm.userId ?: return
     var list by remember { mutableStateOf<List<PackShort>?>(null) }
     LaunchedEffect(uid) { vm.io({}, { ApiClient.api.packs(uid) }) { list = it } }
+    val prem = rememberPremium(vm)
     ListScreen {
         item {
             Column {
@@ -831,7 +1016,11 @@ fun PackListScreen(vm: AppVm, open: (Int) -> Unit, onBack: () -> Unit) {
                 Err(vm)
             }
         }
-        if (list == null) item { HeartLoader() }
+        if (prem == false) {
+            item { PaywallCard("Темы вопросов", onPremium) }
+            return@ListScreen
+        }
+        if (list == null || prem == null) item { HeartLoader() }
         list?.let { l ->
             if (l.isEmpty()) item { EmptyHint("📚", "Пока нет тем") }
             itemsIndexed(l) { i, p ->
@@ -928,8 +1117,9 @@ fun PackScreen(vm: AppVm, id: Int, onBack: () -> Unit) {
 // ---------- «Ещё» ----------
 @Composable
 fun MoreScreen(
-    onQuizzes: () -> Unit, onPacks: () -> Unit, onEvents: () -> Unit,
-    onWidget: () -> Unit, onSettings: () -> Unit
+    onProfile: () -> Unit, onQuizzes: () -> Unit, onPacks: () -> Unit,
+    onEvents: () -> Unit, onWidget: () -> Unit, onSettings: () -> Unit,
+    onPremium: () -> Unit
 ) {
     @Composable
     fun MenuRow(i: Int, icon: androidx.compose.ui.graphics.vector.ImageVector, t: String, s: String, c: () -> Unit) {
@@ -949,11 +1139,13 @@ fun MoreScreen(
     }
     ListScreen {
         item { ScreenHeader("Ещё", "Все разделы CoupleJoy") }
-        item { MenuRow(0, Icons.Rounded.Quiz, "Викторины", "Совместимость и игры", onQuizzes) }
-        item { MenuRow(1, Icons.Rounded.Style, "Темы вопросов", "Разговоры по душам", onPacks) }
-        item { MenuRow(2, Icons.Rounded.HourglassTop, "Обратный отсчёт", "Годовщины и поездки", onEvents) }
-        item { MenuRow(3, Icons.Rounded.PhotoCamera, "Фото на виджет", "Порадуйте партнёра", onWidget) }
-        item { MenuRow(4, Icons.Rounded.Settings, "Настройки", "Тема, сервер, выход", onSettings) }
+        item { MenuRow(0, Icons.Rounded.Person, "Профиль", "Фото, дата рождения, дата начала отношений", onProfile) }
+        item { MenuRow(1, Icons.Rounded.Quiz, "Викторины", "Совместимость и игры", onQuizzes) }
+        item { MenuRow(2, Icons.Rounded.Style, "Темы вопросов", "Разговоры по душам", onPacks) }
+        item { MenuRow(3, Icons.Rounded.HourglassTop, "Обратный отсчёт", "Годовщины и поездки", onEvents) }
+        item { MenuRow(4, Icons.Rounded.PhotoCamera, "Фото на виджет", "Порадуйте партнёра", onWidget) }
+        item { MenuRow(5, Icons.Rounded.Star, "Premium", "Подписка через Telegram", onPremium) }
+        item { MenuRow(6, Icons.Rounded.Settings, "Настройки", "Тема, сервер, выход", onSettings) }
     }
 }
 
@@ -1030,8 +1222,9 @@ fun SettingsScreen(
                 }
             }
         }
+        item { Appear(2) { LocationShareCard(vm) } }
         item {
-            Appear(2) {
+            Appear(3) {
                 SoftCard(Modifier.fillMaxWidth()) {
                     Text("Виджет на рабочий стол", style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(6.dp))
@@ -1044,7 +1237,7 @@ fun SettingsScreen(
             }
         }
         item {
-            Appear(3) {
+            Appear(4) {
                 GhostButton(
                     "Выйти из пары на этом устройстве", onLogout,
                     Modifier.fillMaxWidth(), icon = Icons.AutoMirrored.Rounded.Logout
@@ -1056,8 +1249,9 @@ fun SettingsScreen(
 
 // ---------- фото на виджет ----------
 @Composable
-fun WidgetSendScreen(vm: AppVm, onBack: () -> Unit) {
+fun WidgetSendScreen(vm: AppVm, onBack: () -> Unit, onPremium: () -> Unit) {
     val uid = vm.userId ?: return
+    val prem = rememberPremium(vm)
     val x = LocalCj.current
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -1083,6 +1277,14 @@ fun WidgetSendScreen(vm: AppVm, onBack: () -> Unit) {
                 ScreenHeader("На виджет партнёра", "Фото сразу появится на домашнем экране партнёра.", onBack)
                 Err(vm)
             }
+        }
+        if (prem == false) {
+            item { PaywallCard("Фото на виджет", onPremium) }
+            return@ListScreen
+        }
+        if (prem == null) {
+            item { HeartLoader() }
+            return@ListScreen
         }
         item {
             Appear(0) {
@@ -1119,13 +1321,8 @@ fun WidgetSendScreen(vm: AppVm, onBack: () -> Unit) {
                             scope.launch {
                                 sending = true
                                 try {
-                                    val bytes = ctx.contentResolver.openInputStream(uri!!)!!.readBytes()
-                                    val part = MultipartBody.Part.createFormData(
-                                        "file", "photo.jpg",
-                                        bytes.toRequestBody("image/*".toMediaType())
-                                    )
-                                    val up = ApiClient.api.upload(part)
-                                    ApiClient.api.widgetSend(WidgetReq(uid, up.url, caption))
+                                    val url = uploadImage(ctx, uri!!)
+                                    ApiClient.api.widgetSend(WidgetReq(uid, url, caption))
                                     uri = null
                                     caption = ""
                                     msg = "Отправлено! 💞"

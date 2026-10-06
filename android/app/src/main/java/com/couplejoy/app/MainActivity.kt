@@ -64,9 +64,13 @@ import com.couplejoy.app.ui.HomeScreen
 import com.couplejoy.app.ui.IdeasScreen
 import com.couplejoy.app.ui.JournalScreen
 import com.couplejoy.app.ui.LocalCj
+import com.couplejoy.app.ui.LocalProfile
+import com.couplejoy.app.ui.ProfileScreen
+import com.couplejoy.app.ui.ProfileStore
 import com.couplejoy.app.ui.MoreScreen
 import com.couplejoy.app.ui.PackListScreen
 import com.couplejoy.app.ui.PackScreen
+import com.couplejoy.app.ui.PremiumScreen
 import com.couplejoy.app.ui.PairScreen
 import com.couplejoy.app.ui.QuizListScreen
 import com.couplejoy.app.ui.QuizScreen
@@ -74,6 +78,8 @@ import com.couplejoy.app.ui.SettingsScreen
 import com.couplejoy.app.ui.WidgetSendScreen
 import com.couplejoy.app.ui.windowBackgroundColor
 import com.couplejoy.app.widget.WidgetWorker
+import com.couplejoy.app.location.LocationSync
+import com.couplejoy.app.widget.scheduleDistanceWidget
 import com.couplejoy.app.widget.scheduleWidget
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -107,6 +113,7 @@ class MainActivity : ComponentActivity() {
         val prefs = getSharedPreferences("cj", Context.MODE_PRIVATE)
         ApiClient.init(prefs.getString("base_url", ApiClient.DEFAULT_URL)!!)
         scheduleWidget(this)
+        scheduleDistanceWidget(this)
         if (vm.userId == null) {
             vm.userId = prefs.getInt("uid", -1).takeIf { it >= 0 }
         }
@@ -156,6 +163,7 @@ private fun BottomBar(current: String?, onSelect: (String) -> Unit) {
 fun CoupleApp(activity: ComponentActivity, vm: AppVm, prefs: SharedPreferences) {
     val ctx = LocalContext.current
     var dark by remember { mutableStateOf(prefs.getBoolean("dark", true)) }
+    var profile by remember { mutableStateOf(ProfileStore.load(prefs)) }
     var baseUrl by remember {
         mutableStateOf(prefs.getString("base_url", ApiClient.DEFAULT_URL)!!)
     }
@@ -167,6 +175,22 @@ fun CoupleApp(activity: ComponentActivity, vm: AppVm, prefs: SharedPreferences) 
         activity.enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
         activity.window.setBackgroundDrawable(ColorDrawable(windowBackgroundColor(dark)))
         onDispose { }
+    }
+
+    // Пока приложение открыто — отправляем свою геопозицию (если пользователь включил «Расстояние»)
+    DisposableEffect(vm.userId) {
+        val uid = vm.userId
+        val obs = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME &&
+                uid != null && LocationSync.isSharing(ctx)
+            ) {
+                vm.viewModelScope.launch {
+                    try { LocationSync.push(ctx, uid) } catch (e: Exception) { }
+                }
+            }
+        }
+        activity.lifecycle.addObserver(obs)
+        onDispose { activity.lifecycle.removeObserver(obs) }
     }
 
     fun refreshWidget() {
@@ -200,7 +224,9 @@ fun CoupleApp(activity: ComponentActivity, vm: AppVm, prefs: SharedPreferences) 
                     popExitTransition = { fadeOut(tween(120)) + androidx.compose.animation.slideOutVertically(tween(200)) { it / 24 } }
                 ) {
                     composable("pair") {
-                        PairScreen(vm) { uid ->
+                        PairScreen(vm) { uid, pr ->
+                            ProfileStore.save(prefs, pr)
+                            profile = pr
                             prefs.edit().putInt("uid", uid).apply()
                             vm.userId = uid
                             vm.error = null
@@ -209,7 +235,11 @@ fun CoupleApp(activity: ComponentActivity, vm: AppVm, prefs: SharedPreferences) 
                         }
                     }
                     composable("home") {
-                        HomeScreen(vm, { nav.navigate("quizzes") }, { nav.navigate("widget") })
+                        HomeScreen(
+                            vm, profile,
+                            { nav.navigate("quizzes") }, { nav.navigate("widget") },
+                            { nav.navigate("profile") }
+                        )
                     }
                     composable("daily") {
                         DailyScreen(vm, { nav.navigate("quizzes") }, { nav.navigate("packs") })
@@ -218,11 +248,13 @@ fun CoupleApp(activity: ComponentActivity, vm: AppVm, prefs: SharedPreferences) 
                     composable("journal") { JournalScreen(vm) }
                     composable("more") {
                         MoreScreen(
+                            onProfile = { nav.navigate("profile") },
                             onQuizzes = { nav.navigate("quizzes") },
                             onPacks = { nav.navigate("packs") },
                             onEvents = { nav.navigate("events") },
                             onWidget = { nav.navigate("widget") },
-                            onSettings = { nav.navigate("settings") }
+                            onSettings = { nav.navigate("settings") },
+                            onPremium = { nav.navigate("premium") }
                         )
                     }
                     composable("quizzes") {
@@ -235,7 +267,13 @@ fun CoupleApp(activity: ComponentActivity, vm: AppVm, prefs: SharedPreferences) 
                         QuizScreen(vm, e.arguments?.getInt("id") ?: 0) { nav.popBackStack() }
                     }
                     composable("packs") {
-                        PackListScreen(vm, { nav.navigate("pack/$it") }, { nav.popBackStack() })
+                        PackListScreen(
+                            vm, { nav.navigate("pack/$it") }, { nav.popBackStack() },
+                            { nav.navigate("premium") }
+                        )
+                    }
+                    composable("premium") {
+                        PremiumScreen(vm) { nav.popBackStack() }
                     }
                     composable(
                         "pack/{id}",
@@ -243,8 +281,20 @@ fun CoupleApp(activity: ComponentActivity, vm: AppVm, prefs: SharedPreferences) 
                     ) { e ->
                         PackScreen(vm, e.arguments?.getInt("id") ?: 0) { nav.popBackStack() }
                     }
+                    composable("profile") {
+                        ProfileScreen(
+                            vm, profile,
+                            onSave = {
+                                profile = it
+                                ProfileStore.save(prefs, it)
+                            },
+                            onBack = { nav.popBackStack() }
+                        )
+                    }
                     composable("events") { EventsScreen(vm) { nav.popBackStack() } }
-                    composable("widget") { WidgetSendScreen(vm) { nav.popBackStack() } }
+                    composable("widget") {
+                        WidgetSendScreen(vm, { nav.popBackStack() }, { nav.navigate("premium") })
+                    }
                     composable("settings") {
                         SettingsScreen(
                             vm = vm, baseUrl = baseUrl, dark = dark,
@@ -258,7 +308,16 @@ fun CoupleApp(activity: ComponentActivity, vm: AppVm, prefs: SharedPreferences) 
                                 ApiClient.init(it)
                             },
                             onLogout = {
+                                val leaving = vm.userId
+                                if (leaving != null && LocationSync.isSharing(ctx)) {
+                                    vm.viewModelScope.launch {
+                                        try { ApiClient.api.locationStop(leaving) } catch (e: Exception) { }
+                                    }
+                                }
+                                LocationSync.setSharing(ctx, false)
                                 prefs.edit().putInt("uid", -1).apply()
+                                ProfileStore.clear(prefs)
+                                profile = LocalProfile()
                                 vm.userId = null
                                 vm.error = null
                                 refreshWidget()
