@@ -23,6 +23,8 @@ DB = os.environ.get("COUPLE_DB", os.path.join(BASE_DIR, "couple.db"))
 BOT_NAME = os.environ.get("TELEGRAM_BOT_NAME", "Enrwine_bot")
 PRICE_STARS = int(os.environ.get("PREMIUM_STARS", "99"))
 PREMIUM_DAYS = int(os.environ.get("PREMIUM_DAYS", "30"))
+APP_URL = os.environ.get("APP_PUBLIC_URL", "https://ssssw-sladaqqq.amvera.io")
+ICON_URL = APP_URL.rstrip("/") + "/icons/icon-512.png"
 
 
 def db():
@@ -45,10 +47,26 @@ def send(token, chat, text, buttons=None):
     if buttons:
         kb = {"keyboard": [[{"text": b} for b in row] for row in buttons],
               "resize_keyboard": True}
+    payload = {"chat_id": chat, "text": text, "parse_mode": "HTML"}
+    if kb:
+        payload["reply_markup"] = kb
     try:
-        api(token, "sendMessage", {"chat_id": chat, "text": text,
-                                  "reply_markup": kb} if kb else
-            {"chat_id": chat, "text": text})
+        api(token, "sendMessage", payload)
+    except Exception:
+        pass
+
+
+def safe(s):
+    return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def send_welcome(token, chat):
+    try:
+        api(token, "sendPhoto", {
+            "chat_id": chat, "photo": ICON_URL,
+            "caption": "<b>💞 CoupleJoy Premium</b>\nПодписка для двоих — темы вопросов, "
+                       "фото на виджет и новые функции.",
+            "parse_mode": "HTML"})
     except Exception:
         pass
 
@@ -87,7 +105,9 @@ def link_code(tg_id, tg_name, code):
     con.commit()
     user = con.execute("SELECT name FROM users WHERE id=?", (uid,)).fetchone()
     con.close()
-    return True, f"Привязано к аккаунту «{user['name'] if user else uid}». Теперь можно покупать Premium 💫", uid
+    aname = safe(user["name"]) if user else str(uid)
+    return True, (f"✅ <b>Готово!</b> Привязано к аккаунту «{aname}».\n"
+                 f"Нажми «Купить Premium 💫» — подписка за минуту ⭐"), uid
 
 
 def user_by_tg(tg_id):
@@ -110,38 +130,45 @@ MENU = [["Купить Premium 💫", "Мой статус ⭐"]]
 
 def handle_message(token, m):
     chat = m["chat"]["id"]
-    tg_name = (m["chat"].get("first_name") or "").strip()
+    tg_name = safe((m["chat"].get("first_name") or "").strip())
     text = (m.get("text") or "").strip()
     if "successful_payment" in m:
         uid = user_by_tg(chat)
         if uid:
             until = grant_premium(uid)
             send(token, chat,
-                 f"Оплата прошла ✅ Premium активен до {until}.\n"
-                 f"Открой приложение — функции разблокированы 💞", MENU)
+                 f"✅ <b>Оплата прошла!</b>\n\n💫 Premium активен до <b>{until}</b>.\n"
+                 f"Открой приложение и нажми «Обновить статус» — функции уже разблокированы 💞",
+                 MENU)
         else:
             send(token, chat,
-                 "Оплата прошла, но аккаунт не привязан. Пришли код из приложения.", MENU)
+                 "Оплата прошла, но аккаунт не привязан. Пришли код из приложения "
+                 "(Ещё → Premium → «Показать код»).", MENU)
         return
     if text.startswith("/start"):
         parts = text.split(maxsplit=1)
         if len(parts) > 1:
             ok, msg, _ = link_code(chat, tg_name, parts[1])
-            send(token, chat, ("✅ " if ok else "❌ ") + msg, MENU)
+            send(token, chat, msg if ok else "❌ " + msg, MENU)
         else:
             uid = user_by_tg(chat)
+            if not uid:
+                send_welcome(token, chat)
             send(token, chat,
-                 ("Ты уже привязан ✅ Нажми «Купить Premium 💫»."
+                 ("✅ <b>Ты уже привязан.</b> Нажми «Купить Premium 💫» — и всё твоё."
                   if uid else
-                  "Привет! Это бот подписки CoupleJoy 💞\n"
-                  "Возьми код в приложении (Ещё → Premium) и пришли его сюда — "
-                  "можно просто перейти по кнопке из приложения."),
+                  "<b>Привет! Это бот подписки CoupleJoy 💞</b>\n\n"
+                  "1️⃣ Возьми код в приложении: <b>Ещё → Premium → «Показать код»</b>\n"
+                  "2️⃣ Пришли код сюда (или перейди по кнопке «Открыть бота» — код подставится сам)\n"
+                  "3️⃣ Нажми «Купить Premium 💫» и оплати звёздами ⭐"),
                  MENU)
         return
     if text == "Мой статус ⭐":
         uid = user_by_tg(chat)
         if not uid:
-            send(token, chat, "Сначала привяжи аккаунт: пришли код из приложения.", MENU)
+            send(token, chat,
+                 "Сначала привяжи аккаунт:\n1️⃣ Возьми код в приложении (<b>Ещё → Premium</b>)\n"
+                 "2️⃣ Пришли его сюда.", MENU)
             return
         until = premium_until(uid) or ""
         try:
@@ -149,31 +176,35 @@ def handle_message(token, m):
         except ValueError:
             active = False
         send(token, chat,
-             f"Premium активен до {until} ✅" if active else
-             "Premium не активен. Нажми «Купить Premium 💫».", MENU)
+             f"💫 <b>Premium активен до {until}</b> ✅\nПриятного пользования вдвоём 💞"
+             if active else
+             "Premium не активен 😔\nНажми «Купить Premium 💫» — это минута.",
+             MENU)
         return
     if text == "Купить Premium 💫":
         uid = user_by_tg(chat)
         if not uid:
-            send(token, chat, "Сначала привяжи аккаунт: пришли код из приложения.", MENU)
+            send(token, chat,
+                 "Сначала привяжи аккаунт: пришли код из приложения (<b>Ещё → Premium</b>).",
+                 MENU)
             return
         try:
             api(token, "sendInvoice", {
                 "chat_id": chat,
-                "title": "CoupleJoy Premium",
-                "description": f"Все функции на {PREMIUM_DAYS} дней",
+                "title": "💫 CoupleJoy Premium",
+                "description": f"Темы вопросов, фото на виджет и новые функции на {PREMIUM_DAYS} дней",
                 "payload": f"prem:{uid}",
                 "currency": "XTR",
                 "prices": [{"label": f"Premium {PREMIUM_DAYS} дн.", "amount": PRICE_STARS}],
             })
         except Exception:
             send(token, chat,
-                 "Не получилось выставить счёт. Попробуй позже.", MENU)
+                 "Не получилось выставить счёт 😔 Попробуй чуть позже.", MENU)
         return
     # всё остальное считаем кодом привязки
     if text:
         ok, msg, _ = link_code(chat, tg_name, text)
-        send(token, chat, ("✅ " if ok else "❌ ") + msg, MENU)
+        send(token, chat, msg if ok else "❌ " + msg, MENU)
 
 
 def run_bot(token):
