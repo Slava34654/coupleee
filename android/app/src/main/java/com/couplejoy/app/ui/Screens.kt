@@ -510,12 +510,12 @@ fun HomeScreen(
                                 )
                             }
                         }
-                        Spacer(Modifier.height(18.dp))
-                        Box(
-                            Modifier.fillMaxWidth().height(1.dp)
-                                .background(Color.White.copy(alpha = 0.18f))
-                        )
-                        Spacer(Modifier.height(14.dp))
+                    }
+                }
+            }
+            item {
+                Appear(1) {
+                    SoftCard(Modifier.fillMaxWidth(), padding = 22.dp) {
                         Segmented(
                             listOf("Расстояние", "Фото"),
                             if (heroMode == "photos") 1 else 0,
