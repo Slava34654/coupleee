@@ -70,6 +70,7 @@ import com.couplejoy.app.ui.ProfileStore
 import com.couplejoy.app.ui.MoreScreen
 import com.couplejoy.app.ui.PackListScreen
 import com.couplejoy.app.ui.PackScreen
+import com.couplejoy.app.ui.PetGameScreen
 import com.couplejoy.app.ui.PremiumScreen
 import com.couplejoy.app.ui.PairScreen
 import com.couplejoy.app.ui.QuizListScreen
@@ -260,7 +261,8 @@ fun CoupleApp(activity: ComponentActivity, vm: AppVm, prefs: SharedPreferences) 
                             onWidget = { nav.navigate("widget") },
                             onSettings = { nav.navigate("settings") },
                             onPremium = { nav.navigate("premium") },
-                            onJournal = { nav.navigate("journal") }
+                            onJournal = { nav.navigate("journal") },
+                            onPet = { nav.navigate("pet") }
                         )
                     }
                     composable("quizzes") {
@@ -280,6 +282,9 @@ fun CoupleApp(activity: ComponentActivity, vm: AppVm, prefs: SharedPreferences) 
                     }
                     composable("premium") {
                         PremiumScreen(vm) { nav.popBackStack() }
+                    }
+                    composable("pet") {
+                        PetGameScreen(vm) { nav.popBackStack() }
                     }
                     composable(
                         "pack/{id}",
