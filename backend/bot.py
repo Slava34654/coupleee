@@ -23,6 +23,7 @@ DB = os.environ.get("COUPLE_DB", os.path.join(BASE_DIR, "couple.db"))
 BOT_NAME = os.environ.get("TELEGRAM_BOT_NAME", "Enrwine_bot")
 PRICE_STARS = int(os.environ.get("PREMIUM_STARS", "99"))
 PREMIUM_DAYS = int(os.environ.get("PREMIUM_DAYS", "30"))
+ADMIN_IDS = {int(x) for x in os.environ.get("ADMIN_TG_IDS", "").split(",") if x.strip().isdigit()}
 APP_URL = os.environ.get("APP_PUBLIC_URL", "https://ssssw-sladaqqq.amvera.io")
 ICON_URL = APP_URL.rstrip("/") + "/icons/icon-512.png"
 
@@ -128,10 +129,103 @@ def premium_until(user_id):
 MENU = [["Купить Premium 💫", "Мой статус ⭐"]]
 
 
+def is_admin(tg_id):
+    return tg_id in ADMIN_IDS
+
+
+def find_user(key):
+    """Поиск пользователя по id или коду пары. Возвращает (id, name) или None."""
+    key = (key or "").strip()
+    con = db()
+    row = None
+    if key.isdigit():
+        row = con.execute("SELECT id, name FROM users WHERE id=?",
+                          (int(key),)).fetchone()
+    if row is None and key:
+        row = con.execute("SELECT id, name FROM users WHERE pair_code=?",
+                          (key.upper(),)).fetchone()
+    con.close()
+    return (row["id"], row["name"]) if row else None
+
+
+def admin_grant(key, days):
+    found = find_user(key)
+    if not found:
+        return "Пользователь не найден. Пришли id или код пары."
+    uid, name = found
+    until = grant_premium(uid, days)
+    return f"✅ <b>{safe(name)}</b> (id {uid}) — Premium до <b>{until}</b>."
+
+
+def admin_revoke(key):
+    found = find_user(key)
+    if not found:
+        return "Пользователь не найден. Пришли id или код пары."
+    uid, name = found
+    con = db()
+    con.execute("UPDATE users SET premium_until='' WHERE id=?", (uid,))
+    con.commit()
+    con.close()
+    return f"Premium у <b>{safe(name)}</b> (id {uid}) выключен."
+
+
+def admin_users():
+    con = db()
+    rows = con.execute(
+        "SELECT id, name, premium_until FROM users ORDER BY id DESC LIMIT 10").fetchall()
+    con.close()
+    today = datetime.date.today().isoformat()
+    lines = []
+    for r in rows:
+        mark = "💫" if r["premium_until"] and r["premium_until"] >= today else "–"
+        lines.append(f"{mark} <b>{safe(r['name'])}</b> (id {r['id']})"
+                     + (f" до {r['premium_until']}" if r["premium_until"] else ""))
+    return "Последние пользователи:\n" + "\n".join(lines) if lines else "Пока пусто."
+
+
+def admin_stats():
+    con = db()
+    users = con.execute("SELECT COUNT(*) n FROM users").fetchone()["n"]
+    today = datetime.date.today().isoformat()
+    prem = con.execute("SELECT COUNT(*) n FROM users WHERE premium_until >= ?",
+                       (today,)).fetchone()["n"]
+    sharing = con.execute("SELECT COUNT(*) n FROM locations").fetchone()["n"]
+    con.close()
+    return (f"📊 <b>Статистика</b>\nПользователей: {users}\n"
+            f"С Premium: {prem}\nДелятся геопозицией: {sharing}")
+
+
 def handle_message(token, m):
     chat = m["chat"]["id"]
     tg_name = safe((m["chat"].get("first_name") or "").strip())
     text = (m.get("text") or "").strip()
+    if text.startswith("/grant ") or text.startswith("/ungrant ") or text in (
+            "/users", "/stats", "/admin"):
+        if not is_admin(chat):
+            send(token, chat, "Нет доступа 🔒", MENU)
+            return
+        parts = text.split()
+        cmd = parts[0]
+        if cmd == "/grant":
+            days = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 365
+            key = parts[1] if len(parts) > 1 else ""
+            send(token, chat, admin_grant(key, days) if key else
+                 "Формат: <code>/grant КОД_ПАРЫ [дней]</code>\nПример: <code>/grant A1B2C3 365</code>",
+                 MENU)
+        elif cmd == "/ungrant":
+            key = parts[1] if len(parts) > 1 else ""
+            send(token, chat, admin_revoke(key) if key else
+                 "Формат: <code>/ungrant КОД_ПАРЫ</code>", MENU)
+        elif cmd == "/users":
+            send(token, chat, admin_users(), MENU)
+        elif cmd == "/stats":
+            send(token, chat, admin_stats(), MENU)
+        else:
+            send(token, chat,
+                 "🔧 <b>Админка</b>\n<code>/grant КОД [дней]</code> — выдать Premium (по умолчанию год)\n"
+                 "<code>/ungrant КОД</code> — забрать\n<code>/users</code> — последние пользователи\n"
+                 "<code>/stats</code> — цифры", MENU)
+        return
     if "successful_payment" in m:
         uid = user_by_tg(chat)
         if uid:
