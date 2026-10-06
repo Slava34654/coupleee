@@ -255,7 +255,6 @@ fun CoupleApp(activity: ComponentActivity, vm: AppVm, prefs: SharedPreferences) 
                     composable("more") {
                         MoreScreen(
                             onProfile = { nav.navigate("profile") },
-                            onQuizzes = { nav.navigate("quizzes") },
                             onPacks = { nav.navigate("packs") },
                             onEvents = { nav.navigate("events") },
                             onWidget = { nav.navigate("widget") },

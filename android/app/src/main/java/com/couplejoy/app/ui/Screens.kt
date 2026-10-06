@@ -1242,7 +1242,7 @@ fun PackScreen(vm: AppVm, id: Int, onBack: () -> Unit) {
 // ---------- «Ещё» ----------
 @Composable
 fun MoreScreen(
-    onProfile: () -> Unit, onQuizzes: () -> Unit, onPacks: () -> Unit,
+    onProfile: () -> Unit, onPacks: () -> Unit,
     onEvents: () -> Unit, onWidget: () -> Unit, onSettings: () -> Unit,
     onPremium: () -> Unit, onJournal: () -> Unit
 ) {
@@ -1265,13 +1265,12 @@ fun MoreScreen(
     ListScreen {
         item { ScreenHeader("Ещё", "Все разделы CoupleJoy") }
         item { MenuRow(0, Icons.Rounded.Person, "Профиль", "Фото, дата рождения, дата начала отношений", onProfile) }
-        item { MenuRow(1, Icons.Rounded.Quiz, "Викторины", "Совместимость и игры", onQuizzes) }
-        item { MenuRow(2, Icons.Rounded.Style, "Темы вопросов", "Разговоры по душам", onPacks) }
-        item { MenuRow(3, Icons.Rounded.HourglassTop, "Обратный отсчёт", "Годовщины и поездки", onEvents) }
-        item { MenuRow(4, Icons.Rounded.PhotoCamera, "Фото на виджет", "Порадуйте партнёра", onWidget) }
-        item { MenuRow(5, Icons.Rounded.Star, "Premium", "Подписка через Telegram", onPremium) }
-        item { MenuRow(6, Icons.Rounded.AutoStories, "Журнал", "Ваши общие моменты", onJournal) }
-        item { MenuRow(7, Icons.Rounded.Settings, "Настройки", "Тема, сервер, выход", onSettings) }
+        item { MenuRow(1, Icons.Rounded.Style, "Темы вопросов", "Разговоры по душам", onPacks) }
+        item { MenuRow(2, Icons.Rounded.HourglassTop, "Обратный отсчёт", "Годовщины и поездки", onEvents) }
+        item { MenuRow(3, Icons.Rounded.PhotoCamera, "Фото на виджет", "Порадуйте партнёра", onWidget) }
+        item { MenuRow(4, Icons.Rounded.Star, "Premium", "Подписка через Telegram", onPremium) }
+        item { MenuRow(5, Icons.Rounded.AutoStories, "Журнал", "Ваши общие моменты", onJournal) }
+        item { MenuRow(6, Icons.Rounded.Settings, "Настройки", "Тема, сервер, выход", onSettings) }
     }
 }
 
