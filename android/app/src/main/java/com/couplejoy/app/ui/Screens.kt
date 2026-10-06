@@ -421,7 +421,11 @@ fun HomeScreen(
     var me by remember { mutableStateOf<MeResp?>(null) }
     var dist by remember { mutableStateOf<DistanceResp?>(null) }
     var wphotos by remember { mutableStateOf<WidgetResp?>(null) }
-    var heroMode by remember { mutableStateOf(prefs.getString("hero_mode", "days") ?: "days") }
+    var heroMode by remember {
+        mutableStateOf(
+            if (prefs.getString("hero_mode", "distance") == "photos") "photos" else "distance"
+        )
+    }
     var loading by remember { mutableStateOf(true) }
     val scope = rememberCoroutineScope()
     fun reload() = vm.io({ loading = it }, { ApiClient.api.me(uid) }) {
@@ -430,10 +434,10 @@ fun HomeScreen(
         vm.io({}, { ApiClient.api.widget(uid) }) { wphotos = it }
     }
     LaunchedEffect(uid) { reload() }
-    val heroModes = listOf("days", "distance", "photos")
+    val heroModes = listOf("distance", "photos")
     fun setHero(i: Int) {
-        heroMode = heroModes[i]
-        prefs.edit().putString("hero_mode", heroModes[i]).apply()
+        heroMode = heroModes[i.coerceIn(0, 1)]
+        prefs.edit().putString("hero_mode", heroModes[i.coerceIn(0, 1)]).apply()
     }
     ListScreen {
         item {
@@ -455,68 +459,75 @@ fun HomeScreen(
                         animate(0f, days.toFloat(), animationSpec = tween(1200)) { v, _ -> shown = v.toInt() }
                     }
                     SoftCard(Modifier.fillMaxWidth(), accent = true, padding = 22.dp) {
-                        Segmented(
-                            listOf("Дни", "Расстояние", "Фото"),
-                            when (heroMode) { "distance" -> 1; "photos" -> 2; else -> 0 },
-                            ::setHero
-                        )
-                        Spacer(Modifier.height(16.dp))
-                        Crossfade(targetState = heroMode, label = "hero") { mode ->
-                            when (mode) {
-                                "distance" -> HeroDistance(dist)
-                                "photos" -> HeroPhotos(base, wphotos)
-                                else -> Column(
-                                    Modifier.fillMaxWidth(),
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    Row(
-                                        Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.Center,
-                                        verticalAlignment = Alignment.Top
-                                    ) {
-                                        HeroPerson(
-                                            m.name, profile.avatar, birthLine(profile.birth), false, onProfile
-                                        )
-                                        Icon(
-                                            Icons.Rounded.Favorite, null, tint = Color.White,
-                                            modifier = Modifier.padding(top = 24.dp, start = 6.dp, end = 6.dp).size(26.dp)
-                                        )
-                                        HeroPerson(
-                                            m.partner?.name ?: "Ждём…", m.partner?.avatar,
-                                            m.partner?.let { birthLine(it.birth, it.age) },
-                                            m.partner == null, onProfile
-                                        )
-                                    }
-                                    Spacer(Modifier.height(16.dp))
-                                    Text(
-                                        "$shown", color = Color.White, fontSize = 60.sp,
-                                        fontWeight = FontWeight.ExtraBold, modifier = Modifier.fillMaxWidth(),
-                                        textAlign = TextAlign.Center
-                                    )
-                                    Text(
-                                        "дней вместе", color = Color.White.copy(alpha = 0.9f),
-                                        style = MaterialTheme.typography.titleMedium,
-                                        modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center
-                                    )
-                                    if (m.together_since.isNotBlank()) {
-                                        Text(
-                                            "с ${prettyDate(m.together_since)} • одно число на двоих",
-                                            color = Color.White.copy(alpha = 0.8f),
-                                            style = MaterialTheme.typography.labelMedium,
-                                            modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center
-                                        )
-                                    }
-                                    Spacer(Modifier.height(12.dp))
-                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                                        Text(
-                                            "🔥 Серия: ${m.streak}",
-                                            Modifier.clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = 0.22f))
-                                                .padding(horizontal = 14.dp, vertical = 6.dp),
-                                            color = Color.White, style = MaterialTheme.typography.labelLarge
-                                        )
-                                    }
-                                }
+                        Column(
+                            Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.Top
+                            ) {
+                                HeroPerson(
+                                    m.name, profile.avatar, birthLine(profile.birth), false, onProfile
+                                )
+                                Icon(
+                                    Icons.Rounded.Favorite, null, tint = Color.White,
+                                    modifier = Modifier.padding(top = 24.dp, start = 6.dp, end = 6.dp).size(26.dp)
+                                )
+                                HeroPerson(
+                                    m.partner?.name ?: "Ждём…", m.partner?.avatar,
+                                    m.partner?.let { birthLine(it.birth, it.age) },
+                                    m.partner == null, onProfile
+                                )
                             }
+                            Spacer(Modifier.height(16.dp))
+                            Text(
+                                "$shown", color = Color.White, fontSize = 60.sp,
+                                fontWeight = FontWeight.ExtraBold, modifier = Modifier.fillMaxWidth(),
+                                textAlign = TextAlign.Center
+                            )
+                            Text(
+                                "дней вместе", color = Color.White.copy(alpha = 0.9f),
+                                style = MaterialTheme.typography.titleMedium,
+                                modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center
+                            )
+                            if (m.together_since.isNotBlank()) {
+                                Text(
+                                    "с ${prettyDate(m.together_since)} • одно число на двоих",
+                                    color = Color.White.copy(alpha = 0.8f),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center
+                                )
+                            }
+                            Spacer(Modifier.height(12.dp))
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                                Text(
+                                    "🔥 Серия: ${m.streak}",
+                                    Modifier.clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = 0.22f))
+                                        .padding(horizontal = 14.dp, vertical = 6.dp),
+                                    color = Color.White, style = MaterialTheme.typography.labelLarge
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(18.dp))
+                        Box(
+                            Modifier.fillMaxWidth().height(1.dp)
+                                .background(Color.White.copy(alpha = 0.18f))
+                        )
+                        Spacer(Modifier.height(14.dp))
+                        Segmented(
+                            listOf("Расстояние", "Фото"),
+                            if (heroMode == "photos") 1 else 0,
+                            { setHero(if (it == 1) 1 else 0) }
+                        )
+                        Spacer(Modifier.height(14.dp))
+                        Crossfade(
+                            targetState = heroMode == "photos",
+                            label = "hero"
+                        ) { photos ->
+                            if (photos) HeroPhotos(base, wphotos)
+                            else HeroDistance(dist)
                         }
                     }
                 }
