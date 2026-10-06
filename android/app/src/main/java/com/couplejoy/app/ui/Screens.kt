@@ -139,13 +139,14 @@ private fun ActionTile(
 
 // ---------- вход / создание пары ----------
 @Composable
-fun PairScreen(vm: AppVm, onDone: (Int, LocalProfile) -> Unit) {
+fun PairScreen(vm: AppVm, onDone: (Int, LocalProfile, String) -> Unit) {
     val x = LocalCj.current
     val ctx = LocalContext.current
     var name by remember { mutableStateOf("") }
     var code by remember { mutableStateOf("") }
     var myCode by remember { mutableStateOf<String?>(null) }
     var myUid by remember { mutableStateOf<Int?>(null) }
+    var myToken by remember { mutableStateOf("") }
     var birth by remember { mutableStateOf("") }
     var since by remember { mutableStateOf("") }
     var avatarUri by remember { mutableStateOf<Uri?>(null) }
@@ -244,6 +245,7 @@ fun PairScreen(vm: AppVm, onDone: (Int, LocalProfile) -> Unit) {
                                 avatarUrl = av
                                 myCode = r.pair_code
                                 myUid = r.user_id
+                                myToken = r.token ?: ""
                             } catch (e: Exception) { vm.error = e.message }
                             busy = false
                         }
@@ -277,7 +279,7 @@ fun PairScreen(vm: AppVm, onDone: (Int, LocalProfile) -> Unit) {
                             GhostButton("Копировать", { clipboard.setText(AnnotatedString(c)) }, Modifier.weight(1f))
                             PrimaryButton(
                                 "Войти",
-                                { myUid?.let { onDone(it, LocalProfile(avatarUrl, birth, since)) } },
+                                { myUid?.let { onDone(it, LocalProfile(avatarUrl, birth, since), myToken) } },
                                 Modifier.weight(1f)
                             )
                         }
@@ -296,8 +298,8 @@ fun PairScreen(vm: AppVm, onDone: (Int, LocalProfile) -> Unit) {
                             busy = true
                             try {
                                 val av = avatarUri?.let { uploadImage(ctx, it) } ?: ""
-                                val uid = ApiClient.api.join(JoinReq(name, code, birth, av)).user_id
-                                onDone(uid, LocalProfile(av, birth, ""))
+                                val res = ApiClient.api.join(JoinReq(name, code, birth, av))
+                                onDone(res.user_id, LocalProfile(av, birth, ""), res.token ?: "")
                             } catch (e: Exception) { vm.error = e.message }
                             busy = false
                         }
@@ -1206,7 +1208,7 @@ fun SettingsScreen(
                     }
                     Spacer(Modifier.height(10.dp))
                     Text(
-                        "По умолчанию: https://ssssw-sladaqqq.amvera.io/  •  Эмулятор: http://10.0.2.2:8000/  •  Домашний Wi-Fi: http://192.168.1.81:8000/",
+                        "По умолчанию: https://ssssw-sladaqqq.amvera.io/  •  ⚠️ Используйте https: обычные http-адреса приложение не примет (защита данных). Для тестов подойдёт эмулятор: http://10.0.2.2:8000/",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

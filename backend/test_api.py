@@ -12,18 +12,37 @@ from main import app, init_db
 init_db()
 c = TestClient(app)
 
+# все запросы от имени пользователя несут его токен (как в приложении)
+TOK = {}
+_raw_get, _raw_post, _raw_delete = c.get, c.post, c.delete
+def _tok_headers(kwargs):
+    p = kwargs.get("params") or {}
+    j = kwargs.get("json") or {}
+    uid = j.get("user_id", p.get("user_id") if isinstance(p, dict) else None)
+    if uid in TOK:
+        h = dict(kwargs.get("headers") or {})
+        h["X-Auth-Token"] = TOK[uid]
+        kwargs["headers"] = h
+    return kwargs
+def _g(*a, **k): return _raw_get(*a, **_tok_headers(k))
+def _p(*a, **k): return _raw_post(*a, **_tok_headers(k))
+def _d(*a, **k): return _raw_delete(*a, **_tok_headers(k))
+c.get, c.post, c.delete = _g, _p, _d
+
 r = c.post("/pair", json={"name": "Алекс"})
-assert r.status_code == 422  # дата рождения обязательна
+assert r.status_code == 200 and r.json()["token"], r.text  # дата рождения необязательна
 r = c.post("/pair", json={"name": "Алекс", "birth": "не дата"})
 assert r.status_code == 400
 r = c.post("/pair", json={"name": "Алекс", "birth": "2000-05-10",
                           "avatar": "/photos/x.png"})
 a = r.json(); print("pair A:", a)
-assert a["user_id"] > 0
+assert a["user_id"] > 0 and a["token"]
 r = c.post("/pair/join", json={"name": "Сэм", "code": a["pair_code"],
                                "birth": "2001-08-20"})
 b = r.json(); print("pair B:", b)
+assert b["token"]
 A, B = a["user_id"], b["user_id"]
+TOK[A], TOK[B] = a["token"], b["token"]
 
 me = c.get("/me", params={"user_id": A}).json()
 assert me["partner"]["id"] == B and me["days_together"] == 0, me
@@ -215,16 +234,18 @@ print("events extras OK:", bday["id"], bday["days_left"], bday["date"])
 
 # фото: загрузка, привязка к записи, проверки
 png = (b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
-r = c.post("/photos", files={"file": ("pic.png", png, "image/png")})
+r = c.post("/photos", params={"user_id": A}, files={"file": ("pic.png", png, "image/png")})
 assert r.status_code == 200, r.text
 url = r.json()["url"]
 assert url.startswith("/photos/") and url.endswith(".png"), url
 rj = c.get(url)
 assert rj.status_code == 200 and rj.content[:8] == png[:8]
-r = c.post("/photos", files={"file": ("x.txt", b"hi", "text/plain")})
+r = c.post("/photos", params={"user_id": A}, files={"file": ("x.txt", b"hi", "text/plain")})
 assert r.status_code == 400
-r = c.post("/photos", files={"file": ("big.png", b"\x00" * (6 * 1024 * 1024), "image/png")})
+r = c.post("/photos", params={"user_id": A}, files={"file": ("big.png", b"\x00" * (6 * 1024 * 1024), "image/png")})
 assert r.status_code == 400
+r = c.post("/photos", files={"file": ("pic.png", png, "image/png")})
+assert r.status_code in (401, 404), r.status_code  # загрузка без авторизации закрыта
 jid3 = c.post("/journal", json={"user_id": A, "title": "С фото",
                                 "text": "смотри", "photo": url}).json()["id"]
 lst = c.get("/journal", params={"user_id": A}).json()
@@ -252,6 +273,18 @@ assert w["partner"]["caption"] == "смотри!" and w["mine"] is None
 w = c.get("/widget", params={"user_id": A}).json()
 assert w["mine"]["photo"] == "/photos/w1.png" and w["partner"] is None
 print("widget photos OK")
+
+# авторизация: без токена и с чужим токеном — 401, перебор id закрыт
+c0 = TestClient(app)
+assert c0.get("/me", params={"user_id": A}).status_code == 401
+assert c0.get("/me", params={"user_id": A},
+              headers={"X-Auth-Token": "wrong"}).status_code == 401
+assert c0.get("/me", params={"user_id": B},
+              headers={"X-Auth-Token": TOK[A]}).status_code == 401  # чужой токен
+assert c0.get("/me", params={"user_id": 999999},
+              headers={"X-Auth-Token": "x"}).status_code == 404
+assert c0.get("/journal", params={"user_id": A}).status_code == 401
+print("auth OK: 401 without token, чужой токен отклонён")
 
 r = c.delete("/pair", params={"user_id": A})
 assert r.json() == {"ok": True}

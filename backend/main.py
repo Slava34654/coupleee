@@ -10,6 +10,9 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import Optional
 from typing import Optional, List
+from contextvars import ContextVar
+from starlette.middleware.base import BaseHTTPMiddleware
+import secrets
 import sqlite3
 import datetime
 import json
@@ -22,6 +25,23 @@ DB = os.environ.get("COUPLE_DB", os.path.join(os.path.dirname(os.path.abspath(__
 PHOTO_DIR = os.environ.get("PHOTO_DIR", os.path.join(os.path.dirname(os.path.abspath(__file__)), "photos"))
 
 app = FastAPI(title="CoupleJoy Analog API", version="1.0")
+
+# Токен текущего HTTP-запроса (заголовок X-Auth-Token). WebSocket идёт мимо
+# middleware — там токен передаётся явным query-параметром.
+_request_token: ContextVar[str] = ContextVar("request_token", default="")
+
+
+class AuthTokenMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        _request_token.set(request.headers.get("x-auth-token", ""))
+        return await call_next(request)
+
+
+app.add_middleware(AuthTokenMiddleware)
+
+
+def new_token() -> str:
+    return secrets.token_hex(16)
 
 # ---------------- seed-данные ----------------
 QUESTIONS = [
@@ -273,6 +293,10 @@ def init_db():
         c.execute("ALTER TABLE users ADD COLUMN birth TEXT DEFAULT ''")
     if "avatar" not in cols_u:
         c.execute("ALTER TABLE users ADD COLUMN avatar TEXT DEFAULT ''")
+    if "token" not in cols_u:
+        c.execute("ALTER TABLE users ADD COLUMN token TEXT DEFAULT ''")
+    for r in c.execute("SELECT id FROM users WHERE token IS NULL OR token=''").fetchall():
+        c.execute("UPDATE users SET token=? WHERE id=?", (new_token(), r["id"]))
     # геопозиция для виджета «расстояние» (хранится только последняя точка)
     c.execute("CREATE TABLE IF NOT EXISTS locations("
               "user_id INTEGER PRIMARY KEY, lat REAL NOT NULL, "
@@ -382,7 +406,7 @@ class WSManager:
         msg = {"type": "reload", "what": what}
         await self.send(uid, msg)
         try:
-            me, partner = couple_of(uid)
+            me, partner = lookup_couple(uid)
         except HTTPException:
             return
         if partner:
@@ -391,7 +415,8 @@ class WSManager:
 wsman = WSManager()
 
 @app.websocket("/ws")
-async def ws_ep(ws: WebSocket, user_id: int):
+async def ws_ep(ws: WebSocket, user_id: int, token: str = ""):
+    _request_token.set(token or "")
     try:
         me, partner = couple_of(user_id)
     except HTTPException:
@@ -415,7 +440,9 @@ async def ws_ep(ws: WebSocket, user_id: int):
 def today():
     return datetime.date.today().isoformat()
 
-def couple_of(user_id: int):
+def lookup_couple(user_id: int):
+    """Пара пользователя БЕЗ проверки токена — только для внутреннего
+    использования (пинг WS, подсчёты), где запрос уже проверен выше."""
     con = db()
     me = con.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
     if not me:
@@ -428,8 +455,23 @@ def couple_of(user_id: int):
     con.close()
     return me, partner
 
+
+def couple_of(user_id: int):
+    """Пара пользователя + проверка токена текущего запроса.
+
+    Токен выдаётся при создании/входе и хранится на устройстве.
+    Без верного X-Auth-Token — 401 (id подряд не перебрать).
+    """
+    me, partner = lookup_couple(user_id)
+    cols = me.keys()
+    stored = me["token"] if "token" in cols else ""
+    tok = _request_token.get()
+    if not stored or not tok or not secrets.compare_digest(stored, tok):
+        raise HTTPException(401, "unauthorized")
+    return me, partner
+
 def partner_id_of(user_id: int) -> Optional[int]:
-    me, partner = couple_of(user_id)
+    me, partner = lookup_couple(user_id)
     return partner["id"] if partner else None
 
 def touch_streak_days(user_id: int) -> int:
@@ -563,12 +605,14 @@ def pair_create(body: PairIn):
     since = check_since(body.since) if body.since else today()
     con = db()
     code = new_code()
-    cur = con.execute("INSERT INTO users(name,pair_code,together_since,birth,avatar) VALUES(?,?,?,?,?)",
-                      (body.name.strip(), code, since, body.birth, body.avatar))
+    tok = new_token()
+    cur = con.execute("INSERT INTO users(name,pair_code,together_since,birth,avatar,token) VALUES(?,?,?,?,?,?)",
+                      (body.name.strip(), code, since, body.birth, body.avatar, tok))
     con.commit()
     uid = cur.lastrowid
     con.close()
-    return {"user_id": uid, "pair_code": code}
+    _request_token.set(tok)
+    return {"user_id": uid, "pair_code": code, "token": tok}
 
 @app.post("/pair/join")
 async def pair_join(body: JoinIn):
@@ -583,16 +627,18 @@ async def pair_join(body: JoinIn):
     if other["partner_id"]:
         con.close()
         raise HTTPException(400, "code already used")
-    cur = con.execute("INSERT INTO users(name,pair_code,together_since,birth,avatar) VALUES(?,?,?,?,?)",
+    tok = new_token()
+    cur = con.execute("INSERT INTO users(name,pair_code,together_since,birth,avatar,token) VALUES(?,?,?,?,?,?)",
                       (body.name.strip(), new_code(), other["together_since"],
-                       body.birth, body.avatar))
+                       body.birth, body.avatar, tok))
     uid = cur.lastrowid
     con.execute("UPDATE users SET partner_id=? WHERE id=?", (uid, other["id"]))
     con.execute("UPDATE users SET partner_id=? WHERE id=?", (other["id"], uid))
     con.commit()
     con.close()
+    _request_token.set(tok)
     await wsman.ping_couple(uid, "pair")
-    return {"user_id": uid, "partner_id": other["id"]}
+    return {"user_id": uid, "partner_id": other["id"], "token": tok}
 
 @app.get("/me")
 def me(user_id: int):
@@ -1002,6 +1048,9 @@ PHOTO_TYPES = {"image/jpeg": ".jpg", "image/png": ".png",
 
 @app.post("/photos")
 async def upload_photo(file: UploadFile = File(...)):
+    # Без авторизации осознанно: загрузка нужна ДО создания аккаунта
+    # (аватар при регистрации). Защита — лимит 5 МБ и типы файлов,
+    # чтение — только по неугодаемым uuid-ссылкам.
     if file.content_type not in PHOTO_TYPES:
         raise HTTPException(400, "only jpeg/png/webp/gif images")
     data = await file.read()

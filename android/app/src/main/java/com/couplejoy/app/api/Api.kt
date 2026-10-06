@@ -1,6 +1,8 @@
 package com.couplejoy.app.api
 
+import okhttp3.Interceptor
 import okhttp3.MultipartBody
+import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.Body
@@ -17,7 +19,8 @@ import retrofit2.http.Query
 const val BASE_URL = "http://10.0.2.2:8000/"
 
 // ---------- модели (имена полей = JSON бэкенда) ----------
-data class PairResp(val user_id: Int, val pair_code: String?, val partner_id: Int? = null)
+data class PairResp(val user_id: Int, val pair_code: String?, val partner_id: Int? = null,
+                     val token: String? = null)
 data class PairReq(val name: String, val birth: String = "", val avatar: String = "",
                    val since: String = "")
 data class JoinReq(val name: String, val code: String, val birth: String = "", val avatar: String = "")
@@ -116,8 +119,26 @@ interface Api {
 
 object ApiClient {
     const val DEFAULT_URL = "https://ssssw-sladaqqq.amvera.io/"
+    const val AUTH_HEADER = "X-Auth-Token"
+
+    /** Токен текущего пользователя. Подставляется в каждый запрос. */
+    var authToken: String = ""
+
+    private val authInterceptor = Interceptor { chain ->
+        val req = chain.request()
+        val t = authToken
+        val withAuth = if (t.isNotBlank()) {
+            req.newBuilder().header(AUTH_HEADER, t).build()
+        } else req
+        chain.proceed(withAuth)
+    }
+    private val http = OkHttpClient.Builder()
+        .addInterceptor(authInterceptor)
+        .build()
+
     private fun build(url: String): Api = Retrofit.Builder()
         .baseUrl(url)
+        .client(http)
         .addConverterFactory(GsonConverterFactory.create())
         .build()
         .create(Api::class.java)

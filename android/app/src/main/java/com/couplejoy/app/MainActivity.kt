@@ -98,7 +98,11 @@ class AppVm : ViewModel() {
                 val r = withContext(Dispatchers.IO) { block() }
                 onOk(r)
             } catch (e: Exception) {
-                error = (e.message ?: "network error")
+                error = if (e is retrofit2.HttpException && e.code() == 401) {
+                    "Сессия недействительна — выйдите и войдите заново (Настройки → Выйти)"
+                } else {
+                    (e.message ?: "network error")
+                }
             }
             setLoading(false)
         }
@@ -112,6 +116,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val prefs = getSharedPreferences("cj", Context.MODE_PRIVATE)
         ApiClient.init(prefs.getString("base_url", ApiClient.DEFAULT_URL)!!)
+        ApiClient.authToken = prefs.getString("token", "") ?: ""
         scheduleWidget(this)
         scheduleDistanceWidget(this)
         if (vm.userId == null) {
@@ -224,10 +229,11 @@ fun CoupleApp(activity: ComponentActivity, vm: AppVm, prefs: SharedPreferences) 
                     popExitTransition = { fadeOut(tween(120)) + androidx.compose.animation.slideOutVertically(tween(200)) { it / 24 } }
                 ) {
                     composable("pair") {
-                        PairScreen(vm) { uid, pr ->
+                        PairScreen(vm) { uid, pr, tok ->
                             ProfileStore.save(prefs, pr)
                             profile = pr
-                            prefs.edit().putInt("uid", uid).apply()
+                            prefs.edit().putInt("uid", uid).putString("token", tok).apply()
+                            ApiClient.authToken = tok
                             vm.userId = uid
                             vm.error = null
                             refreshWidget()
@@ -315,7 +321,8 @@ fun CoupleApp(activity: ComponentActivity, vm: AppVm, prefs: SharedPreferences) 
                                     }
                                 }
                                 LocationSync.setSharing(ctx, false)
-                                prefs.edit().putInt("uid", -1).apply()
+                                prefs.edit().putInt("uid", -1).remove("token").apply()
+                                ApiClient.authToken = ""
                                 ProfileStore.clear(prefs)
                                 profile = LocalProfile()
                                 vm.userId = null

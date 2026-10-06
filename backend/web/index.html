@@ -313,6 +313,11 @@
 
 <script>
 let uid = +(localStorage.getItem("cj_uid") || 0);
+function authHeaders(){
+  const t = localStorage.getItem("cj_token") || "";
+  return t ? {"Content-Type":"application/json", "X-Auth-Token": t}
+           : {"Content-Type":"application/json"};
+}
 let _spin = 0;
 function spin(d){
   _spin = Math.max(0, _spin + d);
@@ -324,11 +329,15 @@ function spin(d){
 async function req(m, p, b){
   spin(1);
   try{
-    const r = await fetch(p, {method:m, headers:{"Content-Type":"application/json"},
+    const r = await fetch(p, {method:m, headers:authHeaders(),
                               body: b ? JSON.stringify(b) : undefined});
     let j = null;
     try{ j = await r.json(); }catch(e){}
     if(!r.ok){
+      if(r.status === 401){
+        showPairScreen();
+        throw new Error("Сессия недействительна — войдите заново 🙂");
+      }
       const msg = (j && j.detail) || ("HTTP " + r.status);
       if(msg === "user not found"){
         showPairScreen();
@@ -354,7 +363,7 @@ function enter(){ document.getElementById("tabs").classList.remove("hidden");
   document.getElementById("pairmenu-btn").classList.remove("hidden");
   connectWS(); go("home"); }
 function showPairScreen(){
-  uid = 0; localStorage.removeItem("cj_uid");
+  uid = 0; localStorage.removeItem("cj_uid"); localStorage.removeItem("cj_token");
   try{ ws && ws.close(); }catch(e){}
   document.getElementById("tabs").classList.add("hidden");
   document.getElementById("pairmenu-btn").classList.add("hidden");
@@ -370,7 +379,7 @@ function connectWS(){
   clearTimeout(wsTimer);
   try{
     ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") +
-                       location.host + `/ws?user_id=${uid}`);
+                       location.host + `/ws?user_id=${uid}&token=${localStorage.getItem("cj_token") || ""}`);
   }catch(e){ wsTimer = setTimeout(connectWS, 3000); return; }
   ws.onmessage = ev => {
     let m; try{ m = JSON.parse(ev.data); }catch(e){ return; }
@@ -476,7 +485,9 @@ async function pairAvatar(){
   if(!(f.files && f.files[0])) return "";
   const fd = new FormData();
   fd.append("file", f.files[0]);
-  const r = await fetch("/photos", {method:"POST", body:fd});
+  const t = localStorage.getItem("cj_token") || "";
+  const r = await fetch(`/photos?user_id=${uid}`, {method:"POST", body:fd,
+    headers: t ? {"X-Auth-Token": t} : {}});
   const j = await r.json();
   if(!r.ok) throw new Error((j && j.detail) || r.status);
   return j.url;
@@ -494,6 +505,7 @@ async function createPair(){
     const avatar = await pairAvatar();
     const r = await req("POST","/pair",{name, birth, avatar});
     uid = r.user_id; localStorage.setItem("cj_uid", uid);
+    localStorage.setItem("cj_token", r.token || "");
     document.getElementById("p-code").innerHTML =
       `<div class="code">${r.pair_code}</div>
        <p class="mut">Покажите код партнёру. Вы уже внутри 👇</p>
@@ -508,7 +520,8 @@ async function joinPair(){
     const birth = pairBirth();
     const avatar = await pairAvatar();
     const r = await req("POST","/pair/join",{name, code, birth, avatar});
-    uid = r.user_id; localStorage.setItem("cj_uid", uid); enter();
+    uid = r.user_id; localStorage.setItem("cj_uid", uid);
+    localStorage.setItem("cj_token", r.token || ""); enter();
   }catch(e){ alert(e.message); }
 }
 
@@ -775,7 +788,9 @@ function previewPhoto(input){
 async function uploadPhoto(file){
   const fd = new FormData();
   fd.append("file", file);
-  const r = await fetch("/photos", {method:"POST", body:fd});
+  const t = localStorage.getItem("cj_token") || "";
+  const r = await fetch(`/photos?user_id=${uid}`, {method:"POST", body:fd,
+    headers: t ? {"X-Auth-Token": t} : {}});
   const j = await r.json();
   if(!r.ok) throw new Error((j && j.detail) || r.status);
   return j.url;

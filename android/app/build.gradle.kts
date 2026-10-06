@@ -16,9 +16,26 @@ android {
         versionName = "1.0"
     }
 
+    signingConfigs {
+        create("release") {
+            val f = project.findProperty("COUPLEJOY_STORE_FILE") as String?
+            if (!f.isNullOrBlank()) {
+                storeFile = file(f)
+                storePassword = project.findProperty("COUPLEJOY_STORE_PASSWORD") as String?
+                keyAlias = project.findProperty("COUPLEJOY_KEY_ALIAS") as String?
+                keyPassword = project.findProperty("COUPLEJOY_KEY_PASSWORD") as String?
+            }
+        }
+    }
     buildTypes {
         release {
-            isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
     }
     compileOptions {
@@ -30,6 +47,12 @@ android {
     }
     buildFeatures {
         compose = true
+    }
+    packaging {
+        resources {
+            // Агент отладки корутин не нужен в релизе (флаг из аудита).
+            excludes += "DebugProbesKt.bin"
+        }
     }
 }
 
@@ -45,6 +68,7 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
 
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.retrofit2:retrofit:2.11.0")
     implementation("com.squareup.retrofit2:converter-gson:2.11.0")
     implementation("com.google.code.gson:gson:2.11.0")
