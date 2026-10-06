@@ -10,8 +10,12 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -92,9 +96,13 @@ import com.couplejoy.app.api.JournalEntry
 import com.couplejoy.app.api.JournalReq
 import com.couplejoy.app.api.MeResp
 import com.couplejoy.app.api.MoodReq
+import com.couplejoy.app.api.DistanceResp
 import com.couplejoy.app.api.PackAnsReq
 import com.couplejoy.app.api.PackResp
 import com.couplejoy.app.api.PackShort
+import com.couplejoy.app.api.WidgetResp
+import com.couplejoy.app.location.formatAgo
+import com.couplejoy.app.location.formatDistance
 import com.couplejoy.app.api.PairReq
 import com.couplejoy.app.api.QuizAnsReq
 import com.couplejoy.app.api.QuizResp
@@ -337,16 +345,96 @@ private fun HeroPerson(
 }
 
 @Composable
+private fun HeroDistance(d: DistanceResp?) {
+    Column(
+        Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            if (d == null) "…" else d.km?.let { formatDistance(it) } ?: "—",
+            color = Color.White, fontSize = 52.sp,
+            fontWeight = FontWeight.ExtraBold, modifier = Modifier.fillMaxWidth(),
+            textAlign = TextAlign.Center
+        )
+        Text(
+            "расстояние между вами", color = Color.White.copy(alpha = 0.9f),
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            when {
+                d == null -> "Загружаем…"
+                d.partner_name == null -> "Появится, когда присоединится партнёр"
+                !d.sharing || !d.partner_sharing -> "Включите геопозицию оба: Настройки → Расстояние"
+                else -> "обновлено ${formatAgo(d.partner_age_min)}"
+            },
+            color = Color.White.copy(alpha = 0.8f),
+            style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center
+        )
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun HeroPhotos(base: String, w: WidgetResp?) {
+    val pics = listOfNotNull(
+        w?.partner?.photo?.takeIf { it.isNotBlank() }?.let { base + it },
+        w?.mine?.photo?.takeIf { it.isNotBlank() }?.let { base + it }
+    )
+    if (pics.isEmpty()) {
+        Text(
+            if (w == null) "Загружаем…" else "Пока нет фото — отправьте первое через «Фото партнёру»",
+            color = Color.White.copy(alpha = 0.9f),
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp),
+            textAlign = TextAlign.Center
+        )
+    } else {
+        val pager = rememberPagerState(pageCount = { pics.size })
+        HorizontalPager(
+            state = pager,
+            modifier = Modifier.fillMaxWidth().height(240.dp)
+                .clip(RoundedCornerShape(20.dp))
+        ) { p ->
+            AsyncImage(pics[p], null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "листайте ↔ ${pics.size}",
+            color = Color.White.copy(alpha = 0.7f),
+            style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center
+        )
+    }
+}
+
+@Composable
 fun HomeScreen(
     vm: AppVm, profile: LocalProfile,
     toQuizzes: () -> Unit, onWidgetSend: () -> Unit, onProfile: () -> Unit
 ) {
     val uid = vm.userId ?: return
+    val prefs = LocalContext.current.getSharedPreferences("cj", Context.MODE_PRIVATE)
+    val base = prefs.getString("base_url", ApiClient.DEFAULT_URL)!!.trimEnd('/')
     var me by remember { mutableStateOf<MeResp?>(null) }
+    var dist by remember { mutableStateOf<DistanceResp?>(null) }
+    var wphotos by remember { mutableStateOf<WidgetResp?>(null) }
+    var heroMode by remember { mutableStateOf(prefs.getString("hero_mode", "days") ?: "days") }
     var loading by remember { mutableStateOf(true) }
     val scope = rememberCoroutineScope()
-    fun reload() = vm.io({ loading = it }, { ApiClient.api.me(uid) }) { me = it }
+    fun reload() = vm.io({ loading = it }, { ApiClient.api.me(uid) }) {
+        me = it
+        vm.io({}, { ApiClient.api.distance(uid) }) { dist = it }
+        vm.io({}, { ApiClient.api.widget(uid) }) { wphotos = it }
+    }
     LaunchedEffect(uid) { reload() }
+    val heroModes = listOf("days", "distance", "photos")
+    fun setHero(i: Int) {
+        heroMode = heroModes[i]
+        prefs.edit().putString("hero_mode", heroModes[i]).apply()
+    }
     ListScreen {
         item {
             Column {
@@ -367,51 +455,68 @@ fun HomeScreen(
                         animate(0f, days.toFloat(), animationSpec = tween(1200)) { v, _ -> shown = v.toInt() }
                     }
                     SoftCard(Modifier.fillMaxWidth(), accent = true, padding = 22.dp) {
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.Top
-                        ) {
-                            HeroPerson(
-                                m.name, profile.avatar, birthLine(profile.birth), false, onProfile
-                            )
-                            Icon(
-                                Icons.Rounded.Favorite, null, tint = Color.White,
-                                modifier = Modifier.padding(top = 24.dp, start = 6.dp, end = 6.dp).size(26.dp)
-                            )
-                            HeroPerson(
-                                m.partner?.name ?: "Ждём…", m.partner?.avatar,
-                                m.partner?.let { birthLine(it.birth, it.age) },
-                                m.partner == null, onProfile
-                            )
-                        }
+                        Segmented(
+                            listOf("Дни", "Расстояние", "Фото"),
+                            when (heroMode) { "distance" -> 1; "photos" -> 2; else -> 0 },
+                            ::setHero
+                        )
                         Spacer(Modifier.height(16.dp))
-                        Text(
-                            "$shown", color = Color.White, fontSize = 60.sp,
-                            fontWeight = FontWeight.ExtraBold, modifier = Modifier.fillMaxWidth(),
-                            textAlign = TextAlign.Center
-                        )
-                        Text(
-                            "дней вместе", color = Color.White.copy(alpha = 0.9f),
-                            style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center
-                        )
-                        if (m.together_since.isNotBlank()) {
-                            Text(
-                                "с ${prettyDate(m.together_since)} • одно число на двоих",
-                                color = Color.White.copy(alpha = 0.8f),
-                                style = MaterialTheme.typography.labelMedium,
-                                modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center
-                            )
-                        }
-                        Spacer(Modifier.height(12.dp))
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                            Text(
-                                "🔥 Серия: ${m.streak}",
-                                Modifier.clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = 0.22f))
-                                    .padding(horizontal = 14.dp, vertical = 6.dp),
-                                color = Color.White, style = MaterialTheme.typography.labelLarge
-                            )
+                        Crossfade(targetState = heroMode, label = "hero") { mode ->
+                            when (mode) {
+                                "distance" -> HeroDistance(dist)
+                                "photos" -> HeroPhotos(base, wphotos)
+                                else -> Column(
+                                    Modifier.fillMaxWidth(),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Row(
+                                        Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.Center,
+                                        verticalAlignment = Alignment.Top
+                                    ) {
+                                        HeroPerson(
+                                            m.name, profile.avatar, birthLine(profile.birth), false, onProfile
+                                        )
+                                        Icon(
+                                            Icons.Rounded.Favorite, null, tint = Color.White,
+                                            modifier = Modifier.padding(top = 24.dp, start = 6.dp, end = 6.dp).size(26.dp)
+                                        )
+                                        HeroPerson(
+                                            m.partner?.name ?: "Ждём…", m.partner?.avatar,
+                                            m.partner?.let { birthLine(it.birth, it.age) },
+                                            m.partner == null, onProfile
+                                        )
+                                    }
+                                    Spacer(Modifier.height(16.dp))
+                                    Text(
+                                        "$shown", color = Color.White, fontSize = 60.sp,
+                                        fontWeight = FontWeight.ExtraBold, modifier = Modifier.fillMaxWidth(),
+                                        textAlign = TextAlign.Center
+                                    )
+                                    Text(
+                                        "дней вместе", color = Color.White.copy(alpha = 0.9f),
+                                        style = MaterialTheme.typography.titleMedium,
+                                        modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center
+                                    )
+                                    if (m.together_since.isNotBlank()) {
+                                        Text(
+                                            "с ${prettyDate(m.together_since)} • одно число на двоих",
+                                            color = Color.White.copy(alpha = 0.8f),
+                                            style = MaterialTheme.typography.labelMedium,
+                                            modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center
+                                        )
+                                    }
+                                    Spacer(Modifier.height(12.dp))
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                                        Text(
+                                            "🔥 Серия: ${m.streak}",
+                                            Modifier.clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = 0.22f))
+                                                .padding(horizontal = 14.dp, vertical = 6.dp),
+                                            color = Color.White, style = MaterialTheme.typography.labelLarge
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }
