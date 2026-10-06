@@ -70,6 +70,7 @@ import com.couplejoy.app.ui.ProfileStore
 import com.couplejoy.app.ui.MoreScreen
 import com.couplejoy.app.ui.PackListScreen
 import com.couplejoy.app.ui.PackScreen
+import com.couplejoy.app.ui.PremiumScreen
 import com.couplejoy.app.ui.PairScreen
 import com.couplejoy.app.ui.QuizListScreen
 import com.couplejoy.app.ui.QuizScreen
@@ -252,7 +253,8 @@ fun CoupleApp(activity: ComponentActivity, vm: AppVm, prefs: SharedPreferences) 
                             onPacks = { nav.navigate("packs") },
                             onEvents = { nav.navigate("events") },
                             onWidget = { nav.navigate("widget") },
-                            onSettings = { nav.navigate("settings") }
+                            onSettings = { nav.navigate("settings") },
+                            onPremium = { nav.navigate("premium") }
                         )
                     }
                     composable("quizzes") {
@@ -265,7 +267,13 @@ fun CoupleApp(activity: ComponentActivity, vm: AppVm, prefs: SharedPreferences) 
                         QuizScreen(vm, e.arguments?.getInt("id") ?: 0) { nav.popBackStack() }
                     }
                     composable("packs") {
-                        PackListScreen(vm, { nav.navigate("pack/$it") }, { nav.popBackStack() })
+                        PackListScreen(
+                            vm, { nav.navigate("pack/$it") }, { nav.popBackStack() },
+                            { nav.navigate("premium") }
+                        )
+                    }
+                    composable("premium") {
+                        PremiumScreen(vm) { nav.popBackStack() }
                     }
                     composable(
                         "pack/{id}",
@@ -284,7 +292,9 @@ fun CoupleApp(activity: ComponentActivity, vm: AppVm, prefs: SharedPreferences) 
                         )
                     }
                     composable("events") { EventsScreen(vm) { nav.popBackStack() } }
-                    composable("widget") { WidgetSendScreen(vm) { nav.popBackStack() } }
+                    composable("widget") {
+                        WidgetSendScreen(vm, { nav.popBackStack() }, { nav.navigate("premium") })
+                    }
                     composable("settings") {
                         SettingsScreen(
                             vm = vm, baseUrl = baseUrl, dark = dark,

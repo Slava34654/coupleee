@@ -67,6 +67,9 @@ data class LocationReq(val user_id: Int, val lat: Double, val lon: Double)
 data class DistanceResp(val sharing: Boolean, val partner_sharing: Boolean,
                         val km: Double?, val partner_name: String? = null,
                         val partner_age_min: Int? = null)
+data class LinkCodeIn(val user_id: Int)
+data class LinkCode(val code: String)
+data class PremiumOut(val premium: Boolean, val until: String)
 
 interface Api {
     @POST("pair") suspend fun pair(@Body b: PairReq): PairResp
@@ -102,6 +105,8 @@ interface Api {
     @POST("location") suspend fun locationSend(@Body b: LocationReq): OkResp
     @DELETE("location") suspend fun locationStop(@Query("user_id") u: Int): OkResp
     @GET("distance") suspend fun distance(@Query("user_id") u: Int): DistanceResp
+    @POST("premium/code") suspend fun premiumCode(@Body b: LinkCodeIn): LinkCode
+    @GET("premium") suspend fun premium(@Query("user_id") u: Int): PremiumOut
 }
 
 object ApiClient {

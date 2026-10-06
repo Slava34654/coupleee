@@ -50,6 +50,7 @@ import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Quiz
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.Style
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -105,7 +106,7 @@ import kotlinx.coroutines.launch
 
 // ---------- общий каркас списка ----------
 @Composable
-private fun ListScreen(content: LazyListScope.() -> Unit) {
+fun ListScreen(content: LazyListScope.() -> Unit) {
     LazyColumn(
         Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 28.dp),
@@ -1003,10 +1004,11 @@ fun JournalScreen(vm: AppVm) {
 
 // ---------- темы вопросов ----------
 @Composable
-fun PackListScreen(vm: AppVm, open: (Int) -> Unit, onBack: () -> Unit) {
+fun PackListScreen(vm: AppVm, open: (Int) -> Unit, onBack: () -> Unit, onPremium: () -> Unit) {
     val uid = vm.userId ?: return
     var list by remember { mutableStateOf<List<PackShort>?>(null) }
     LaunchedEffect(uid) { vm.io({}, { ApiClient.api.packs(uid) }) { list = it } }
+    val prem = rememberPremium(vm)
     ListScreen {
         item {
             Column {
@@ -1014,7 +1016,11 @@ fun PackListScreen(vm: AppVm, open: (Int) -> Unit, onBack: () -> Unit) {
                 Err(vm)
             }
         }
-        if (list == null) item { HeartLoader() }
+        if (prem == false) {
+            item { PaywallCard("Темы вопросов", onPremium) }
+            return@ListScreen
+        }
+        if (list == null || prem == null) item { HeartLoader() }
         list?.let { l ->
             if (l.isEmpty()) item { EmptyHint("📚", "Пока нет тем") }
             itemsIndexed(l) { i, p ->
@@ -1112,7 +1118,8 @@ fun PackScreen(vm: AppVm, id: Int, onBack: () -> Unit) {
 @Composable
 fun MoreScreen(
     onProfile: () -> Unit, onQuizzes: () -> Unit, onPacks: () -> Unit,
-    onEvents: () -> Unit, onWidget: () -> Unit, onSettings: () -> Unit
+    onEvents: () -> Unit, onWidget: () -> Unit, onSettings: () -> Unit,
+    onPremium: () -> Unit
 ) {
     @Composable
     fun MenuRow(i: Int, icon: androidx.compose.ui.graphics.vector.ImageVector, t: String, s: String, c: () -> Unit) {
@@ -1137,7 +1144,8 @@ fun MoreScreen(
         item { MenuRow(2, Icons.Rounded.Style, "Темы вопросов", "Разговоры по душам", onPacks) }
         item { MenuRow(3, Icons.Rounded.HourglassTop, "Обратный отсчёт", "Годовщины и поездки", onEvents) }
         item { MenuRow(4, Icons.Rounded.PhotoCamera, "Фото на виджет", "Порадуйте партнёра", onWidget) }
-        item { MenuRow(5, Icons.Rounded.Settings, "Настройки", "Тема, сервер, выход", onSettings) }
+        item { MenuRow(5, Icons.Rounded.Star, "Premium", "Подписка через Telegram", onPremium) }
+        item { MenuRow(6, Icons.Rounded.Settings, "Настройки", "Тема, сервер, выход", onSettings) }
     }
 }
 
@@ -1241,8 +1249,9 @@ fun SettingsScreen(
 
 // ---------- фото на виджет ----------
 @Composable
-fun WidgetSendScreen(vm: AppVm, onBack: () -> Unit) {
+fun WidgetSendScreen(vm: AppVm, onBack: () -> Unit, onPremium: () -> Unit) {
     val uid = vm.userId ?: return
+    val prem = rememberPremium(vm)
     val x = LocalCj.current
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -1268,6 +1277,14 @@ fun WidgetSendScreen(vm: AppVm, onBack: () -> Unit) {
                 ScreenHeader("На виджет партнёра", "Фото сразу появится на домашнем экране партнёра.", onBack)
                 Err(vm)
             }
+        }
+        if (prem == false) {
+            item { PaywallCard("Фото на виджет", onPremium) }
+            return@ListScreen
+        }
+        if (prem == null) {
+            item { HeartLoader() }
+            return@ListScreen
         }
         item {
             Appear(0) {
