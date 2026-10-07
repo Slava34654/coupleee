@@ -43,7 +43,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.AutoStories
 import androidx.compose.material.icons.rounded.Casino
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Cloud
@@ -583,7 +582,7 @@ fun HomeScreen(
 fun ProfileScreen(
     vm: AppVm, profile: LocalProfile,
     onSave: (LocalProfile) -> Unit, onBack: (() -> Unit)? = null,
-    onJournal: () -> Unit = {}, onEvents: () -> Unit = {},
+    onEvents: () -> Unit = {},
     onWidget: () -> Unit = {}, onSettings: () -> Unit = {},
     onPremium: () -> Unit = {}
 ) {
@@ -672,11 +671,10 @@ fun ProfileScreen(
                 }
             }
         }
-        item { MenuRow(0, Icons.Rounded.AutoStories, "Журнал", "Ваши общие моменты", onJournal) }
-        item { MenuRow(1, Icons.Rounded.HourglassTop, "Обратный отсчёт", "Годовщины и поездки", onEvents) }
-        item { MenuRow(2, Icons.Rounded.PhotoCamera, "Фото на виджет", "Порадуйте партнёра", onWidget) }
-        item { MenuRow(3, Icons.Rounded.Star, "Premium", "Подписка через Telegram", onPremium) }
-        item { MenuRow(4, Icons.Rounded.Settings, "Настройки", "Тема, сервер, выход", onSettings) }
+        item { MenuRow(0, Icons.Rounded.HourglassTop, "Обратный отсчёт", "Годовщины и поездки", onEvents) }
+        item { MenuRow(1, Icons.Rounded.PhotoCamera, "Фото на виджет", "Порадуйте партнёра", onWidget) }
+        item { MenuRow(2, Icons.Rounded.Star, "Premium", "Подписка через Telegram", onPremium) }
+        item { MenuRow(3, Icons.Rounded.Settings, "Настройки", "Тема, сервер, выход", onSettings) }
     }
 }
 
@@ -710,47 +708,6 @@ private fun EmojiButton(e: String, selected: Boolean, onClick: () -> Unit) {
             .clickable(src, null, onClick = onClick),
         Alignment.Center
     ) { Text(e, fontSize = 28.sp) }
-}
-
-// ---------- викторины ----------
-
-@Composable
-fun QuizListScreen(vm: AppVm, open: (Int) -> Unit, onBack: () -> Unit) {
-    var list by remember { mutableStateOf<List<QuizShort>?>(null) }
-    LaunchedEffect(Unit) {
-        vm.io({}, { ApiClient.api.quizzes() }) { list = it }
-    }
-    ListScreen {
-        item {
-            Column {
-                ScreenHeader("Викторины", "Сравните, как вы знаете друг друга", onBack)
-                Err(vm)
-            }
-        }
-        if (list == null) item { HeartLoader() }
-        list?.let { l ->
-            if (l.isEmpty()) item { EmptyHint("🎮", "Пока нет викторин") }
-            itemsIndexed(l) { i, q ->
-                Appear(i) {
-                    SoftCard(Modifier.fillMaxWidth(), onClick = { open(q.id) }) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            IconBadge(Icons.Rounded.Quiz)
-                            Spacer(Modifier.width(14.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(q.title, style = MaterialTheme.typography.titleMedium)
-                                Text(
-                                    "Вопросов: ${q.questions}",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            Icon(Icons.Rounded.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
-            }
-        }
-    }
 }
 
 @Composable
@@ -852,80 +809,6 @@ fun QuizScreen(vm: AppVm, id: Int, back: () -> Unit) {
                                         } catch (e: Exception) { vm.error = e.message }
                                     }
                                 }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-// ---------- журнал ----------
-@Composable
-fun JournalScreen(vm: AppVm, onBack: (() -> Unit)? = null) {
-    val uid = vm.userId ?: return
-    var list by remember { mutableStateOf<List<JournalEntry>?>(null) }
-    var title by remember { mutableStateOf("") }
-    var text by remember { mutableStateOf("") }
-    val scope = rememberCoroutineScope()
-    fun reload() = vm.io({}, { ApiClient.api.journal(uid) }) { list = it }
-    LaunchedEffect(uid) { reload() }
-    ListScreen {
-        item {
-            Column {
-                ScreenHeader("Общий журнал", "Моменты, которые хочется сохранить", onBack)
-                Err(vm)
-            }
-        }
-        item {
-            Appear(0) {
-                SoftCard(Modifier.fillMaxWidth()) {
-                    Text("Новый момент", style = MaterialTheme.typography.titleMedium)
-                    Spacer(Modifier.height(10.dp))
-                    CjField(title, { title = it }, "Заголовок момента")
-                    Spacer(Modifier.height(10.dp))
-                    CjField(text, { text = it }, "Что запомнилось?", singleLine = false, minLines = 3)
-                    Spacer(Modifier.height(12.dp))
-                    PrimaryButton(
-                        "Сохранить момент",
-                        {
-                            scope.launch {
-                                try {
-                                    ApiClient.api.journalAdd(JournalReq(uid, title, text))
-                                    title = ""; text = ""
-                                    reload()
-                                } catch (e: Exception) { vm.error = e.message }
-                            }
-                        },
-                        Modifier.fillMaxWidth(), enabled = title.isNotBlank()
-                    )
-                }
-            }
-        }
-        if (list == null) item { HeartLoader() }
-        list?.let { l ->
-            if (l.isEmpty()) item { EmptyHint("📖", "Запишите ваш первый общий момент") }
-            itemsIndexed(l) { i, j ->
-                Appear(i) {
-                    SoftCard(Modifier.fillMaxWidth()) {
-                        Row {
-                            Box(Modifier.clip(CircleShape).background(LocalCj.current.brand())) {
-                                Avatar(j.author, 40.dp)
-                            }
-                            Spacer(Modifier.width(12.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(j.title, style = MaterialTheme.typography.titleMedium)
-                                if (j.text.isNotBlank()) {
-                                    Spacer(Modifier.height(4.dp))
-                                    Text(j.text, style = MaterialTheme.typography.bodyLarge)
-                                }
-                                Spacer(Modifier.height(8.dp))
-                                Text(
-                                    "${j.author} • ${j.ts}",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.secondary
-                                )
                             }
                         }
                     }
@@ -1047,38 +930,30 @@ fun PackScreen(vm: AppVm, id: Int, onBack: () -> Unit) {
     }
 }
 
-// ---------- вопросы и идеи (один раздел с вкладками) ----------
+// ---------- вопросы (вопрос дня + викторины) ----------
 @Composable
-fun QAScreen(vm: AppVm, toQuizzes: () -> Unit, onPacks: () -> Unit) {
+fun QAScreen(vm: AppVm, onPacks: () -> Unit, openQuiz: (Int) -> Unit) {
     val uid = vm.userId ?: return
-    val x = LocalCj.current
     var tab by remember { mutableStateOf(0) }
-    // вопрос дня
     var d by remember { mutableStateOf<DailyResp?>(null) }
     var loading by remember { mutableStateOf(true) }
     var text by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
     fun reloadDaily() = vm.io({ loading = it }, { ApiClient.api.daily(uid) }) { d = it }
     LaunchedEffect(uid) { reloadDaily() }
-    // идеи
-    var list by remember { mutableStateOf<List<Idea>?>(null) }
-    var lucky by remember { mutableStateOf<Idea?>(null) }
-    var title by remember { mutableStateOf("") }
-    var filter by remember { mutableStateOf(0) }
-    fun reloadIdeas() = vm.io({}, { ApiClient.api.ideas() }) { list = it }
-    LaunchedEffect(Unit) { reloadIdeas() }
-    val shown = list?.filter {
-        when (filter) { 1 -> it.done != 1; 2 -> it.done == 1; else -> true }
+    var qlist by remember { mutableStateOf<List<QuizShort>?>(null) }
+    LaunchedEffect(Unit) {
+        vm.io({}, { ApiClient.api.quizzes() }) { qlist = it }
     }
     ListScreen {
         item {
             Column {
-                ScreenHeader("Вопросы и идеи", "Ежедневный вопрос и свидания")
+                ScreenHeader("Вопросы", "Ежедневный вопрос и викторины")
                 Err(vm)
             }
         }
         item {
-            Segmented(listOf("Вопрос дня", "Идеи"), tab) { tab = it }
+            Segmented(listOf("Вопрос дня", "Викторины"), tab) { tab = it }
         }
         if (tab == 0) {
             if (loading && d == null) item { HeartLoader() }
@@ -1132,13 +1007,72 @@ fun QAScreen(vm: AppVm, toQuizzes: () -> Unit, onPacks: () -> Unit) {
                 item {
                     Appear(2) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                            ActionTile(Modifier.weight(1f), Icons.Rounded.Quiz, "Викторины", "Игры для двоих", toQuizzes)
+                            ActionTile(Modifier.weight(1f), Icons.Rounded.Quiz, "Викторины", "Игры для двоих") { tab = 1 }
                             ActionTile(Modifier.weight(1f), Icons.Rounded.Style, "Темы вопросов", "Глубокие разговоры", onPacks)
                         }
                     }
                 }
             }
         } else {
+            if (qlist == null) item { HeartLoader() }
+            qlist?.let { l ->
+                if (l.isEmpty()) item { EmptyHint("🎮", "Пока нет викторин") }
+                itemsIndexed(l) { i, q ->
+                    Appear(i) {
+                        SoftCard(Modifier.fillMaxWidth(), onClick = { openQuiz(q.id) }) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconBadge(Icons.Rounded.Quiz)
+                                Spacer(Modifier.width(14.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(q.title, style = MaterialTheme.typography.titleMedium)
+                                    Text(
+                                        "Вопросов: ${q.questions}",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Icon(Icons.Rounded.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ---------- идеи и журнал ----------
+@Composable
+fun IdeasScreen(vm: AppVm) {
+    val uid = vm.userId ?: return
+    val x = LocalCj.current
+    var tab by remember { mutableStateOf(0) }
+    var list by remember { mutableStateOf<List<Idea>?>(null) }
+    var lucky by remember { mutableStateOf<Idea?>(null) }
+    var title by remember { mutableStateOf("") }
+    var filter by remember { mutableStateOf(0) }
+    val scope = rememberCoroutineScope()
+    fun reloadIdeas() = vm.io({}, { ApiClient.api.ideas() }) { list = it }
+    LaunchedEffect(Unit) { reloadIdeas() }
+    val shown = list?.filter {
+        when (filter) { 1 -> it.done != 1; 2 -> it.done == 1; else -> true }
+    }
+    var jlist by remember { mutableStateOf<List<JournalEntry>?>(null) }
+    var jtitle by remember { mutableStateOf("") }
+    var jtext by remember { mutableStateOf("") }
+    fun reloadJournal() = vm.io({}, { ApiClient.api.journal(uid) }) { jlist = it }
+    LaunchedEffect(uid) { reloadJournal() }
+    ListScreen {
+        item {
+            Column {
+                ScreenHeader("Идеи", "Свидания и общие моменты")
+                Err(vm)
+            }
+        }
+        item {
+            Segmented(listOf("Идеи", "Журнал"), tab) { tab = it }
+        }
+        if (tab == 0) {
             item {
                 Appear(0) {
                     SoftCard(Modifier.fillMaxWidth(), accent = true, padding = 20.dp) {
@@ -1233,6 +1167,61 @@ fun QAScreen(vm: AppVm, toQuizzes: () -> Unit, onPacks: () -> Unit) {
                                             reloadIdeas()
                                         } catch (e: Exception) { vm.error = e.message }
                                     }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            item {
+                Appear(0) {
+                    SoftCard(Modifier.fillMaxWidth()) {
+                        Text("Новый момент", style = MaterialTheme.typography.titleMedium)
+                        Spacer(Modifier.height(10.dp))
+                        CjField(jtitle, { jtitle = it }, "Заголовок момента")
+                        Spacer(Modifier.height(10.dp))
+                        CjField(jtext, { jtext = it }, "Что запомнилось?", singleLine = false, minLines = 3)
+                        Spacer(Modifier.height(12.dp))
+                        PrimaryButton(
+                            "Сохранить момент",
+                            {
+                                scope.launch {
+                                    try {
+                                        ApiClient.api.journalAdd(JournalReq(uid, jtitle, jtext))
+                                        jtitle = ""; jtext = ""
+                                        reloadJournal()
+                                    } catch (e: Exception) { vm.error = e.message }
+                                }
+                            },
+                            Modifier.fillMaxWidth(), enabled = jtitle.isNotBlank()
+                        )
+                    }
+                }
+            }
+            if (jlist == null) item { HeartLoader() }
+            jlist?.let { l ->
+                if (l.isEmpty()) item { EmptyHint("📖", "Запишите ваш первый общий момент") }
+                itemsIndexed(l) { i, j ->
+                    Appear(i) {
+                        SoftCard(Modifier.fillMaxWidth()) {
+                            Row {
+                                Box(Modifier.clip(CircleShape).background(LocalCj.current.brand())) {
+                                    Avatar(j.author, 40.dp)
+                                }
+                                Spacer(Modifier.width(12.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(j.title, style = MaterialTheme.typography.titleMedium)
+                                    if (j.text.isNotBlank()) {
+                                        Spacer(Modifier.height(4.dp))
+                                        Text(j.text, style = MaterialTheme.typography.bodyLarge)
+                                    }
+                                    Spacer(Modifier.height(8.dp))
+                                    Text(
+                                        "${j.author} • ${j.ts}",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.secondary
+                                    )
                                 }
                             }
                         }
