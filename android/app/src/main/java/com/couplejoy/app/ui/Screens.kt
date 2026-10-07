@@ -582,7 +582,10 @@ fun HomeScreen(
 @Composable
 fun ProfileScreen(
     vm: AppVm, profile: LocalProfile,
-    onSave: (LocalProfile) -> Unit, onBack: () -> Unit
+    onSave: (LocalProfile) -> Unit, onBack: (() -> Unit)? = null,
+    onJournal: () -> Unit = {}, onEvents: () -> Unit = {},
+    onWidget: () -> Unit = {}, onSettings: () -> Unit = {},
+    onPremium: () -> Unit = {}
 ) {
     val uid = vm.userId ?: return
     val x = LocalCj.current
@@ -669,6 +672,11 @@ fun ProfileScreen(
                 }
             }
         }
+        item { MenuRow(0, Icons.Rounded.AutoStories, "Журнал", "Ваши общие моменты", onJournal) }
+        item { MenuRow(1, Icons.Rounded.HourglassTop, "Обратный отсчёт", "Годовщины и поездки", onEvents) }
+        item { MenuRow(2, Icons.Rounded.PhotoCamera, "Фото на виджет", "Порадуйте партнёра", onWidget) }
+        item { MenuRow(3, Icons.Rounded.Star, "Premium", "Подписка через Telegram", onPremium) }
+        item { MenuRow(4, Icons.Rounded.Settings, "Настройки", "Тема, сервер, выход", onSettings) }
     }
 }
 
@@ -704,84 +712,8 @@ private fun EmojiButton(e: String, selected: Boolean, onClick: () -> Unit) {
     ) { Text(e, fontSize = 28.sp) }
 }
 
-// ---------- ежедневный вопрос ----------
-@Composable
-fun DailyScreen(vm: AppVm, toQuizzes: () -> Unit, onPacks: () -> Unit) {
-    val uid = vm.userId ?: return
-    var d by remember { mutableStateOf<DailyResp?>(null) }
-    var loading by remember { mutableStateOf(true) }
-    var text by remember { mutableStateOf("") }
-    val scope = rememberCoroutineScope()
-    fun reload() = vm.io({ loading = it }, { ApiClient.api.daily(uid) }) { d = it }
-    LaunchedEffect(uid) { reload() }
-    ListScreen {
-        item {
-            Column {
-                ScreenHeader("Вопрос дня", "Отвечайте честно — и узнавайте друг друга лучше")
-                Err(vm)
-            }
-        }
-        if (loading && d == null) item { HeartLoader() }
-        d?.let { dd ->
-            item {
-                Appear(0) {
-                    SoftCard(Modifier.fillMaxWidth(), accent = true, padding = 22.dp) {
-                        Text(
-                            "ВОПРОС ДНЯ • ${dd.question.date}",
-                            color = Color.White.copy(alpha = 0.85f),
-                            style = MaterialTheme.typography.labelMedium
-                        )
-                        Spacer(Modifier.height(10.dp))
-                        Text(
-                            dd.question.text, color = Color.White, fontSize = 22.sp,
-                            lineHeight = 30.sp, fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-            }
-            item {
-                Appear(1) {
-                    SoftCard(Modifier.fillMaxWidth()) {
-                        if (dd.my_answer == null) {
-                            CjField(text, { text = it }, "Ваш ответ", singleLine = false, minLines = 3)
-                            Spacer(Modifier.height(12.dp))
-                            PrimaryButton(
-                                "Отправить",
-                                {
-                                    scope.launch {
-                                        try {
-                                            ApiClient.api.answer(AnswerReq(uid, text))
-                                            text = ""
-                                            reload()
-                                        } catch (e: Exception) { vm.error = e.message }
-                                    }
-                                },
-                                Modifier.fillMaxWidth(), enabled = text.isNotBlank(),
-                                icon = Icons.AutoMirrored.Rounded.Send
-                            )
-                        } else {
-                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Bubble("Вы", dd.my_answer, mine = true)
-                                if (dd.partner_answer != null) Bubble("Партнёр", dd.partner_answer, mine = false)
-                                else WaitingBubble("Партнёр ещё отвечает…")
-                            }
-                        }
-                    }
-                }
-            }
-            item {
-                Appear(2) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                        ActionTile(Modifier.weight(1f), Icons.Rounded.Quiz, "Викторины", "Игры для двоих", toQuizzes)
-                        ActionTile(Modifier.weight(1f), Icons.Rounded.Style, "Темы вопросов", "Глубокие разговоры", onPacks)
-                    }
-                }
-            }
-        }
-    }
-}
-
 // ---------- викторины ----------
+
 @Composable
 fun QuizListScreen(vm: AppVm, open: (Int) -> Unit, onBack: () -> Unit) {
     var list by remember { mutableStateOf<List<QuizShort>?>(null) }
@@ -919,130 +851,6 @@ fun QuizScreen(vm: AppVm, id: Int, back: () -> Unit) {
                                             reload()
                                         } catch (e: Exception) { vm.error = e.message }
                                     }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-// ---------- идеи ----------
-@Composable
-fun IdeasScreen(vm: AppVm) {
-    val x = LocalCj.current
-    var list by remember { mutableStateOf<List<Idea>?>(null) }
-    var lucky by remember { mutableStateOf<Idea?>(null) }
-    var title by remember { mutableStateOf("") }
-    var filter by remember { mutableStateOf(0) }
-    val scope = rememberCoroutineScope()
-    fun reload() = vm.io({}, { ApiClient.api.ideas() }) { list = it }
-    LaunchedEffect(Unit) { reload() }
-    val shown = list?.filter {
-        when (filter) { 1 -> it.done != 1; 2 -> it.done == 1; else -> true }
-    }
-    ListScreen {
-        item {
-            Column {
-                ScreenHeader("Идеи свиданий", "Выбирайте, что попробовать вместе")
-                Err(vm)
-            }
-        }
-        item {
-            Appear(0) {
-                SoftCard(Modifier.fillMaxWidth(), accent = true, padding = 20.dp) {
-                    val l = lucky
-                    if (l == null) {
-                        Text(
-                            "Не знаете, куда пойти?", color = Color.White,
-                            style = MaterialTheme.typography.titleLarge
-                        )
-                        Text(
-                            "Пусть выберет случай 🎲", color = Color.White.copy(alpha = 0.9f),
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                    } else {
-                        Text(l.title, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            "${l.category} • ${l.budget}", color = Color.White.copy(alpha = 0.9f),
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                    }
-                    Spacer(Modifier.height(14.dp))
-                    Row(
-                        Modifier.clip(RoundedCornerShape(16.dp)).background(Color.White)
-                            .clickable {
-                                scope.launch {
-                                    try { lucky = ApiClient.api.ideaRandom() }
-                                    catch (e: Exception) { vm.error = e.message }
-                                }
-                            }
-                            .padding(horizontal = 18.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Rounded.Casino, null, tint = x.accentA, modifier = Modifier.size(20.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Мне повезёт", color = x.accentA, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-        }
-        item {
-            Appear(1) {
-                SoftCard(Modifier.fillMaxWidth()) {
-                    Text("Своя идея", style = MaterialTheme.typography.titleMedium)
-                    Spacer(Modifier.height(10.dp))
-                    CjField(title, { title = it }, "Что хотите попробовать?")
-                    Spacer(Modifier.height(10.dp))
-                    PrimaryButton(
-                        "Добавить",
-                        {
-                            scope.launch {
-                                try {
-                                    ApiClient.api.ideaAdd(IdeaReq(title))
-                                    title = ""
-                                    reload()
-                                } catch (e: Exception) { vm.error = e.message }
-                            }
-                        },
-                        Modifier.fillMaxWidth(), enabled = title.isNotBlank(), icon = Icons.Rounded.Add
-                    )
-                }
-            }
-        }
-        item { Segmented(listOf("Все", "Ждут нас", "Сделано"), filter) { filter = it } }
-        if (list == null) item { HeartLoader() }
-        shown?.let { s ->
-            if (s.isEmpty()) item { EmptyHint("💡", "Здесь пока пусто") }
-            itemsIndexed(s) { i, idea ->
-                Appear(i) {
-                    SoftCard(Modifier.fillMaxWidth(), padding = 16.dp) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    idea.title,
-                                    style = MaterialTheme.typography.titleMedium.copy(
-                                        textDecoration = if (idea.done == 1) TextDecoration.LineThrough else TextDecoration.None
-                                    ),
-                                    color = if (idea.done == 1) MaterialTheme.colorScheme.onSurfaceVariant
-                                    else MaterialTheme.colorScheme.onSurface
-                                )
-                                Spacer(Modifier.height(6.dp))
-                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    if (idea.category.isNotBlank()) Pill(idea.category, x.accentB)
-                                    if (idea.budget.isNotBlank()) Pill(idea.budget, MaterialTheme.colorScheme.tertiary)
-                                }
-                            }
-                            Spacer(Modifier.width(10.dp))
-                            CheckCircle(idea.done == 1) {
-                                scope.launch {
-                                    try {
-                                        ApiClient.api.ideaDone(idea.id, idea.done != 1)
-                                        reload()
-                                    } catch (e: Exception) { vm.error = e.message }
                                 }
                             }
                         }
@@ -1239,39 +1047,199 @@ fun PackScreen(vm: AppVm, id: Int, onBack: () -> Unit) {
     }
 }
 
-// ---------- «Ещё» ----------
+// ---------- вопросы и идеи (один раздел с вкладками) ----------
 @Composable
-fun MoreScreen(
-    onProfile: () -> Unit, onPacks: () -> Unit,
-    onEvents: () -> Unit, onWidget: () -> Unit, onSettings: () -> Unit,
-    onPremium: () -> Unit, onJournal: () -> Unit, onPet: () -> Unit
-) {
-    @Composable
-    fun MenuRow(i: Int, icon: androidx.compose.ui.graphics.vector.ImageVector, t: String, s: String, c: () -> Unit) {
-        Appear(i) {
-            SoftCard(Modifier.fillMaxWidth(), onClick = c, padding = 16.dp) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconBadge(icon)
-                    Spacer(Modifier.width(14.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(t, style = MaterialTheme.typography.titleMedium)
-                        Text(s, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+fun QAScreen(vm: AppVm, toQuizzes: () -> Unit, onPacks: () -> Unit) {
+    val uid = vm.userId ?: return
+    val x = LocalCj.current
+    var tab by remember { mutableStateOf(0) }
+    // вопрос дня
+    var d by remember { mutableStateOf<DailyResp?>(null) }
+    var loading by remember { mutableStateOf(true) }
+    var text by remember { mutableStateOf("") }
+    val scope = rememberCoroutineScope()
+    fun reloadDaily() = vm.io({ loading = it }, { ApiClient.api.daily(uid) }) { d = it }
+    LaunchedEffect(uid) { reloadDaily() }
+    // идеи
+    var list by remember { mutableStateOf<List<Idea>?>(null) }
+    var lucky by remember { mutableStateOf<Idea?>(null) }
+    var title by remember { mutableStateOf("") }
+    var filter by remember { mutableStateOf(0) }
+    fun reloadIdeas() = vm.io({}, { ApiClient.api.ideas() }) { list = it }
+    LaunchedEffect(Unit) { reloadIdeas() }
+    val shown = list?.filter {
+        when (filter) { 1 -> it.done != 1; 2 -> it.done == 1; else -> true }
+    }
+    ListScreen {
+        item {
+            Column {
+                ScreenHeader("Вопросы и идеи", "Ежедневный вопрос и свидания")
+                Err(vm)
+            }
+        }
+        item {
+            Segmented(listOf("Вопрос дня", "Идеи"), tab) { tab = it }
+        }
+        if (tab == 0) {
+            if (loading && d == null) item { HeartLoader() }
+            d?.let { dd ->
+                item {
+                    Appear(0) {
+                        SoftCard(Modifier.fillMaxWidth(), accent = true, padding = 22.dp) {
+                            Text(
+                                "ВОПРОС ДНЯ • ${dd.question.date}",
+                                color = Color.White.copy(alpha = 0.85f),
+                                style = MaterialTheme.typography.labelMedium
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            Text(
+                                dd.question.text, color = Color.White, fontSize = 22.sp,
+                                lineHeight = 30.sp, fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
-                    Icon(Icons.Rounded.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                item {
+                    Appear(1) {
+                        SoftCard(Modifier.fillMaxWidth()) {
+                            if (dd.my_answer == null) {
+                                CjField(text, { text = it }, "Ваш ответ", singleLine = false, minLines = 3)
+                                Spacer(Modifier.height(12.dp))
+                                PrimaryButton(
+                                    "Отправить",
+                                    {
+                                        scope.launch {
+                                            try {
+                                                ApiClient.api.answer(AnswerReq(uid, text))
+                                                text = ""
+                                                reloadDaily()
+                                            } catch (e: Exception) { vm.error = e.message }
+                                        }
+                                    },
+                                    Modifier.fillMaxWidth(), enabled = text.isNotBlank(),
+                                    icon = Icons.AutoMirrored.Rounded.Send
+                                )
+                            } else {
+                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Bubble("Вы", dd.my_answer, mine = true)
+                                    if (dd.partner_answer != null) Bubble("Партнёр", dd.partner_answer, mine = false)
+                                    else WaitingBubble("Партнёр ещё отвечает…")
+                                }
+                            }
+                        }
+                    }
+                }
+                item {
+                    Appear(2) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                            ActionTile(Modifier.weight(1f), Icons.Rounded.Quiz, "Викторины", "Игры для двоих", toQuizzes)
+                            ActionTile(Modifier.weight(1f), Icons.Rounded.Style, "Темы вопросов", "Глубокие разговоры", onPacks)
+                        }
+                    }
+                }
+            }
+        } else {
+            item {
+                Appear(0) {
+                    SoftCard(Modifier.fillMaxWidth(), accent = true, padding = 20.dp) {
+                        val l = lucky
+                        if (l == null) {
+                            Text(
+                                "Не знаете, куда пойти?", color = Color.White,
+                                style = MaterialTheme.typography.titleLarge
+                            )
+                            Text(
+                                "Пусть выберет случай 🎲", color = Color.White.copy(alpha = 0.9f),
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        } else {
+                            Text(l.title, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                "${l.category} • ${l.budget}", color = Color.White.copy(alpha = 0.9f),
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                        Spacer(Modifier.height(14.dp))
+                        Row(
+                            Modifier.clip(RoundedCornerShape(16.dp)).background(Color.White)
+                                .clickable {
+                                    scope.launch {
+                                        try { lucky = ApiClient.api.ideaRandom() }
+                                        catch (e: Exception) { vm.error = e.message }
+                                    }
+                                }
+                                .padding(horizontal = 18.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Rounded.Casino, null, tint = x.accentA, modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Мне повезёт", color = x.accentA, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+            item {
+                Appear(1) {
+                    SoftCard(Modifier.fillMaxWidth()) {
+                        Text("Своя идея", style = MaterialTheme.typography.titleMedium)
+                        Spacer(Modifier.height(10.dp))
+                        CjField(title, { title = it }, "Что хотите попробовать?")
+                        Spacer(Modifier.height(10.dp))
+                        PrimaryButton(
+                            "Добавить",
+                            {
+                                scope.launch {
+                                    try {
+                                        ApiClient.api.ideaAdd(IdeaReq(title))
+                                        title = ""
+                                        reloadIdeas()
+                                    } catch (e: Exception) { vm.error = e.message }
+                                }
+                            },
+                            Modifier.fillMaxWidth(), enabled = title.isNotBlank(), icon = Icons.Rounded.Add
+                        )
+                    }
+                }
+            }
+            item { Segmented(listOf("Все", "Ждут нас", "Сделано"), filter) { filter = it } }
+            if (list == null) item { HeartLoader() }
+            shown?.let { s ->
+                if (s.isEmpty()) item { EmptyHint("💡", "Здесь пока пусто") }
+                itemsIndexed(s) { i, idea ->
+                    Appear(i) {
+                        SoftCard(Modifier.fillMaxWidth(), padding = 16.dp) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        idea.title,
+                                        style = MaterialTheme.typography.titleMedium.copy(
+                                            textDecoration = if (idea.done == 1) TextDecoration.LineThrough else TextDecoration.None
+                                        ),
+                                        color = if (idea.done == 1) MaterialTheme.colorScheme.onSurfaceVariant
+                                        else MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Spacer(Modifier.height(6.dp))
+                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        if (idea.category.isNotBlank()) Pill(idea.category, x.accentB)
+                                        if (idea.budget.isNotBlank()) Pill(idea.budget, MaterialTheme.colorScheme.tertiary)
+                                    }
+                                }
+                                Spacer(Modifier.width(10.dp))
+                                CheckCircle(idea.done == 1) {
+                                    scope.launch {
+                                        try {
+                                            ApiClient.api.ideaDone(idea.id, idea.done != 1)
+                                            reloadIdeas()
+                                        } catch (e: Exception) { vm.error = e.message }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
-    }
-    ListScreen {
-        item { ScreenHeader("Ещё", "Все разделы CoupleJoy") }
-        item { MenuRow(0, Icons.Rounded.Person, "Профиль", "Фото, дата рождения, дата начала отношений", onProfile) }
-        item { MenuRow(1, Icons.Rounded.Favorite, "Питомец", "Вырастите малыша вместе", onPet) }
-        item { MenuRow(2, Icons.Rounded.Style, "Темы вопросов", "Разговоры по душам", onPacks) }
-        item { MenuRow(3, Icons.Rounded.HourglassTop, "Обратный отсчёт", "Годовщины и поездки", onEvents) }
-        item { MenuRow(4, Icons.Rounded.PhotoCamera, "Фото на виджет", "Порадуйте партнёра", onWidget) }
-        item { MenuRow(5, Icons.Rounded.Star, "Premium", "Подписка через Telegram", onPremium) }
-        item { MenuRow(6, Icons.Rounded.AutoStories, "Журнал", "Ваши общие моменты", onJournal) }
-        item { MenuRow(7, Icons.Rounded.Settings, "Настройки", "Тема, сервер, выход", onSettings) }
     }
 }
 

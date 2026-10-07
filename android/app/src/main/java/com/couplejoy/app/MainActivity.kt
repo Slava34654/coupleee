@@ -20,9 +20,9 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Home
-import androidx.compose.material.icons.rounded.Lightbulb
-import androidx.compose.material.icons.rounded.MoreHoriz
+import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.QuestionAnswer
 import androidx.compose.material.icons.rounded.Quiz
 import androidx.compose.material3.Icon
@@ -58,17 +58,15 @@ import androidx.work.WorkManager
 import com.couplejoy.app.api.ApiClient
 import com.couplejoy.app.ui.AppTheme
 import com.couplejoy.app.ui.Backdrop
-import com.couplejoy.app.ui.DailyScreen
 import com.couplejoy.app.ui.EventsScreen
 import com.couplejoy.app.ui.HomeScreen
-import com.couplejoy.app.ui.IdeasScreen
 import com.couplejoy.app.ui.JournalScreen
 import com.couplejoy.app.ui.LocalCj
 import com.couplejoy.app.ui.LocalProfile
 import com.couplejoy.app.ui.ProfileScreen
 import com.couplejoy.app.ui.ProfileStore
-import com.couplejoy.app.ui.MoreScreen
 import com.couplejoy.app.ui.PackListScreen
+import com.couplejoy.app.ui.QAScreen
 import com.couplejoy.app.ui.PackScreen
 import com.couplejoy.app.ui.PetGameScreen
 import com.couplejoy.app.ui.PremiumScreen
@@ -130,11 +128,11 @@ class MainActivity : ComponentActivity() {
 private data class Tab(val route: String, val label: String, val icon: ImageVector)
 
 private val Tabs = listOf(
-    Tab("daily", "Вопрос", Icons.Rounded.QuestionAnswer),
-    Tab("ideas", "Идеи", Icons.Rounded.Lightbulb),
     Tab("home", "Главная", Icons.Rounded.Home),
+    Tab("pet", "Питомец", Icons.Rounded.Favorite),
+    Tab("qa", "Вопросы", Icons.Rounded.QuestionAnswer),
     Tab("quizzes", "Викторины", Icons.Rounded.Quiz),
-    Tab("more", "Ещё", Icons.Rounded.MoreHoriz)
+    Tab("profile", "Профиль", Icons.Rounded.Person)
 )
 
 @Composable
@@ -245,26 +243,16 @@ fun CoupleApp(activity: ComponentActivity, vm: AppVm, prefs: SharedPreferences) 
                         HomeScreen(
                             vm, profile,
                             { nav.navigate("quizzes") }, { nav.navigate("widget") },
-                            { nav.navigate("profile") }
+                            { goTab("profile") }
                         )
                     }
-                    composable("daily") {
-                        DailyScreen(vm, { nav.navigate("quizzes") }, { nav.navigate("packs") })
+                    composable("pet") {
+                        PetGameScreen(vm)
                     }
-                    composable("ideas") { IdeasScreen(vm) }
+                    composable("qa") {
+                        QAScreen(vm, { nav.navigate("quizzes") }, { nav.navigate("packs") })
+                    }
                     composable("journal") { JournalScreen(vm) { nav.popBackStack() } }
-                    composable("more") {
-                        MoreScreen(
-                            onProfile = { nav.navigate("profile") },
-                            onPacks = { nav.navigate("packs") },
-                            onEvents = { nav.navigate("events") },
-                            onWidget = { nav.navigate("widget") },
-                            onSettings = { nav.navigate("settings") },
-                            onPremium = { nav.navigate("premium") },
-                            onJournal = { nav.navigate("journal") },
-                            onPet = { nav.navigate("pet") }
-                        )
-                    }
                     composable("quizzes") {
                         QuizListScreen(vm, { nav.navigate("quiz/$it") }, { goTab("home") })
                     }
@@ -283,15 +271,6 @@ fun CoupleApp(activity: ComponentActivity, vm: AppVm, prefs: SharedPreferences) 
                     composable("premium") {
                         PremiumScreen(vm) { nav.popBackStack() }
                     }
-                    composable("pet") {
-                        PetGameScreen(vm) { nav.popBackStack() }
-                    }
-                    composable(
-                        "pack/{id}",
-                        arguments = listOf(navArgument("id") { type = NavType.IntType })
-                    ) { e ->
-                        PackScreen(vm, e.arguments?.getInt("id") ?: 0) { nav.popBackStack() }
-                    }
                     composable("profile") {
                         ProfileScreen(
                             vm, profile,
@@ -299,8 +278,18 @@ fun CoupleApp(activity: ComponentActivity, vm: AppVm, prefs: SharedPreferences) 
                                 profile = it
                                 ProfileStore.save(prefs, it)
                             },
-                            onBack = { nav.popBackStack() }
+                            onJournal = { nav.navigate("journal") },
+                            onEvents = { nav.navigate("events") },
+                            onWidget = { nav.navigate("widget") },
+                            onSettings = { nav.navigate("settings") },
+                            onPremium = { nav.navigate("premium") }
                         )
+                    }
+                    composable(
+                        "pack/{id}",
+                        arguments = listOf(navArgument("id") { type = NavType.IntType })
+                    ) { e ->
+                        PackScreen(vm, e.arguments?.getInt("id") ?: 0) { nav.popBackStack() }
                     }
                     composable("events") { EventsScreen(vm) { nav.popBackStack() } }
                     composable("widget") {

@@ -38,6 +38,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
@@ -283,6 +284,28 @@ fun ScreenHeader(
                     subtitle, style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+        }
+    }
+}
+
+@Composable
+fun MenuRow(
+    index: Int, icon: ImageVector, title: String, sub: String, onClick: () -> Unit
+) {
+    Appear(index) {
+        SoftCard(Modifier.fillMaxWidth(), onClick = onClick, padding = 16.dp) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconBadge(icon)
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(title, style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        sub, style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Icon(Icons.Rounded.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }

@@ -110,7 +110,7 @@ private object PetStore {
 
 // ---------- экран ----------
 @Composable
-fun PetGameScreen(vm: AppVm, onBack: () -> Unit) {
+fun PetGameScreen(vm: AppVm, onBack: (() -> Unit)? = null) {
     val ctx = LocalContext.current
     val prefs = remember {
         ctx.getSharedPreferences("cj", Context.MODE_PRIVATE)
