@@ -2,8 +2,14 @@ package com.couplejoy.app.ui
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -38,7 +44,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -187,6 +196,14 @@ fun PetGameScreen(vm: AppVm, onBack: (() -> Unit)? = null) {
                                         xp = it.xp + 0.08f
                                     )
                                 }
+                            },
+                            onPet = {
+                                update {
+                                    it.copy(
+                                        happiness = it.happiness + 0.02f,
+                                        xp = it.xp + 0.005f
+                                    )
+                                }
                             }
                         )
                     }
@@ -254,23 +271,88 @@ private fun PetView(
     state: CompanionState,
     onFeed: () -> Unit,
     onPlay: () -> Unit,
-    onSleep: () -> Unit
+    onSleep: () -> Unit,
+    onPet: () -> Unit
 ) {
+    val haptics = LocalHapticFeedback.current
+    val scope = rememberCoroutineScope()
     var bounce by remember { mutableStateOf(false) }
+    var hearts by remember { mutableStateOf(0) }
+    var phrase by remember { mutableStateOf<String?>(null) }
+    var playing by remember { mutableStateOf<String?>(null) }
+    var petAcc by remember { mutableStateOf(0f) }
+    var lastPetTick by remember { mutableStateOf(0L) }
     val s by animateFloatAsState(
-        if (bounce) 1.18f else 1f,
-        animationSpec = tween(220),
-        finishedListener = { bounce = false },
-        label = "bounce"
+        if (bounce) 1.18f else 1f, tween(220),
+        finishedListener = { bounce = false }, label = "bounce"
     )
-    val (avatar, stage) = growthStage(state)
+    // спокойное дыхание, когда никто не трогает
+    val breathT = rememberInfiniteTransition(label = "breath")
+    val breath by breathT.animateFloat(
+        1f, 1.045f, infiniteRepeatable(tween(1600), RepeatMode.Reverse), label = "breath"
+    )
+
+    fun say(t: String) {
+        phrase = t
+        scope.launch {
+            delay(1600)
+            if (phrase == t) phrase = null
+        }
+    }
+    fun love(n: Int) {
+        hearts += n
+        scope.launch {
+            delay(900)
+            hearts = max(0, hearts - n)
+        }
+    }
+    fun poke() {
+        bounce = true
+        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+        love(2)
+        val line = if (state.type == CompanionType.PET) {
+            listOf("Мурр!", "Мяу!", "Хи-хи!", "Ещё-ещё!").random()
+        } else {
+            listOf("Агу!", "Хи-хи!", "Бу!", "Ещё!").random()
+        }
+        say(line)
+    }
+    fun doEat() {
+        playing = "eat"
+        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+        say(if (state.type == CompanionType.PET) "Ням-ням!" else "Ам-ам!")
+        onFeed()
+        scope.launch {
+            delay(1500)
+            if (playing == "eat") playing = null
+        }
+    }
+    fun doPlay() {
+        bounce = true
+        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+        love(3)
+        say(if (state.type == CompanionType.PET) "Ура, играем!" else "Юхуу!")
+        onPlay()
+    }
+    fun doSleep() {
+        playing = "sleep"
+        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+        say("Сплю... Zzz")
+        onSleep()
+        scope.launch {
+            delay(2500)
+            if (playing == "sleep") playing = null
+        }
+    }
+
+    val (stageEmoji, stage) = growthStage(state)
+    val face = when (playing) {
+        "eat" -> "😋"
+        "sleep" -> "😴"
+        else -> stageEmoji
+    }
     val food = foodForLevel(state.level, state.type)
     val toy = toyForLevel(state.level, state.type)
-
-    fun act(f: () -> Unit) {
-        bounce = true
-        f()
-    }
 
     Column(
         Modifier.fillMaxWidth(),
@@ -299,18 +381,59 @@ private fun PetView(
                 color = Color.White, style = MaterialTheme.typography.labelLarge
             )
         }
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(6.dp))
+        // сердечки и фразы
+        Box(Modifier.fillMaxWidth().height(34.dp), Alignment.Center) {
+            if (hearts > 0) {
+                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    repeat(hearts.coerceAtMost(8)) { i ->
+                        Text("💖", fontSize = (16 + (i % 3) * 4).sp)
+                    }
+                }
+            } else if (phrase != null) {
+                Text(
+                    phrase!!, color = Color.White,
+                    style = MaterialTheme.typography.titleMedium
+                )
+            }
+        }
+        // САМ ПИТОМЕЦ: тап — тыкнуть, гладить — вести пальцем
         Box(
-            Modifier.size(128.dp).scale(s).clip(CircleShape)
+            Modifier.size(132.dp).scale(s * breath).clip(CircleShape)
                 .background(
                     Brush.radialGradient(
                         listOf(Color.White.copy(alpha = 0.35f), Color.Transparent)
                     )
-                ),
+                )
+                .pointerInput(Unit) {
+                    detectTapGestures(onTap = { poke() })
+                }
+                .pointerInput(Unit) {
+                    detectDragGestures(
+                        onDragStart = { petAcc = 0f },
+                        onDrag = { change, _ ->
+                            change.consume()
+                            petAcc += 1f
+                            val now = System.currentTimeMillis()
+                            if (petAcc >= 12f && now - lastPetTick > 400) {
+                                petAcc = 0f
+                                lastPetTick = now
+                                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                love(1)
+                                onPet()
+                            }
+                        }
+                    )
+                },
             contentAlignment = Alignment.Center
         ) {
-            Text(avatar, fontSize = 64.sp)
+            Text(face, fontSize = 64.sp)
         }
+        Text(
+            "тыкни или погладь меня 👆",
+            color = Color.White.copy(alpha = 0.6f),
+            style = MaterialTheme.typography.labelMedium
+        )
         Spacer(Modifier.height(14.dp))
         PetBar("Прогресс уровня", state.xp, state.level == 10)
         Spacer(Modifier.height(10.dp))
@@ -324,9 +447,9 @@ private fun PetView(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
-            PetAction(food, "Покормить") { act(onFeed) }
-            PetAction(toy, "Играть") { act(onPlay) }
-            PetAction("🌙", "Спать") { act(onSleep) }
+            PetAction(food, "Покормить") { doEat() }
+            PetAction(toy, "Играть") { doPlay() }
+            PetAction("🌙", "Спать") { doSleep() }
         }
     }
 }
