@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="ru"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Питомец 3D</title>
+<style>
+:root{--a:#ee4c8c;--b:#9b4fe0;--ink:#fff;--glass:rgba(255,255,255,.2);box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--a:#d63f7c;--b:#7a3cc4}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0}
+body{font-family:"Nunito",system-ui,sans-serif;color:var(--ink);background:linear-gradient(170deg,var(--a),var(--b));overflow:hidden;user-select:none}
+#app{height:100%;display:flex;flex-direction:column;max-width:480px;margin:0 auto;position:relative}
+header{padding:12px 16px 0;display:flex;justify-content:space-between;align-items:flex-start}
+h1{margin:0;font-size:26px;font-weight:900;line-height:1}
+.sub{font-size:12px;opacity:.9;margin-top:4px}
+.chip{background:var(--glass);border-radius:14px;padding:6px 12px;font-weight:800;font-size:14px}
+#stage{flex:1;min-height:0;position:relative}
+#c{width:100%;height:100%;display:block;touch-action:none}
+#hint{position:absolute;bottom:4px;width:100%;text-align:center;font-size:12px;opacity:.85}
+.bars{padding:0 16px;display:grid;gap:5px}
+.bar{display:grid;grid-template-columns:78px 1fr 40px;align-items:center;font-size:12px;font-weight:700;gap:8px}
+.bar i{display:block;height:8px;border-radius:5px;background:rgba(255,255,255,.25);overflow:hidden}
+.bar i b{display:block;height:100%;background:#fff;border-radius:5px;transition:width .4s}
+.bar em{font-style:normal;text-align:right}
+.acts{display:grid;grid-template-columns:repeat(auto-fit,minmax(72px,1fr));gap:8px;padding:10px 16px 6px}
+button{font:inherit;color:inherit;cursor:pointer;border:0}
+.act{background:var(--glass);border:1.5px solid rgba(255,255,255,.45);border-radius:18px;padding:8px 2px;font-weight:800;font-size:11px;display:flex;flex-direction:column;align-items:center;gap:2px}
+.act span{font-size:26px;line-height:1}
+.act:active{transform:scale(.94)}
+.act:disabled{opacity:.45}
+.wr{padding:0 16px 10px;display:flex;gap:6px;align-items:center;font-size:12px;font-weight:800;flex-wrap:wrap}
+.sw{width:30px;height:30px;border-radius:50%;border:2px solid rgba(255,255,255,.5)}
+.sw.on{border-color:#fff;box-shadow:0 0 0 2px rgba(255,255,255,.5)}
+.sw.lock{opacity:.35;position:relative}
+.tag{background:var(--glass);border-radius:12px;padding:6px 10px;font-size:12px;font-weight:800}
+.tag.on{background:#fff;color:#9b2f9e}.tag.lock{opacity:.4}
+#ov{position:absolute;inset:0;background:linear-gradient(170deg,#3b1b63,#7a2a78);display:none;flex-direction:column;z-index:5;padding-top:env(safe-area-inset-top,0px)}
+#ov.show{display:flex}
+#ovh{display:flex;justify-content:space-between;padding:12px 16px;font-weight:900}
+#gc{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;position:relative}
+#cv{width:100%;height:100%;touch-action:none}
+#menu{position:absolute;inset:0;display:flex;flex-direction:column;gap:12px;align-items:center;justify-content:center;padding:24px;text-align:center}
+.big{background:var(--glass);border:1.5px solid rgba(255,255,255,.5);border-radius:22px;padding:16px;width:100%;max-width:320px;font-weight:800}
+.big small{display:block;font-weight:600;opacity:.85;margin-top:4px}
+#pads{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:16px;width:100%;max-width:340px}
+.pad{aspect-ratio:1;border-radius:24px;opacity:.55;transition:.12s}.pad.lit{opacity:1;transform:scale(1.05);box-shadow:0 0 30px #fff}
+.fl{position:absolute;pointer-events:none;font-size:26px;animation:up 1s forwards}
+@keyframes up{to{transform:translateY(-90px);opacity:0}}
+#toast{position:absolute;top:70px;left:50%;transform:translateX(-50%);background:#fff;color:#7a2a78;font-weight:900;border-radius:16px;padding:8px 16px;display:none;z-index:9;white-space:nowrap}
+.rooms{display:flex;gap:6px;padding:8px 16px 0}.rm{flex:1;border-radius:14px;padding:7px 0;background:var(--glass);font-weight:800;font-size:12px}.rm.on{background:#fff;color:#9b2f9e}
+.act small{font-size:10px;opacity:.85;font-weight:700}
+#stage[data-r=kitchen]{background:radial-gradient(ellipse at 50% 90%,rgba(255,200,120,.4),transparent 65%)}
+#stage[data-r=bath]{background:radial-gradient(ellipse at 50% 90%,rgba(130,220,255,.4),transparent 65%)}
+#stage[data-r=bed]{background:radial-gradient(ellipse at 50% 90%,rgba(170,140,255,.45),transparent 65%)}
+#stage[data-r=play]{background:radial-gradient(ellipse at 50% 90%,rgba(255,150,200,.45),transparent 65%)}
+#stage.dark::after{content:"";position:absolute;inset:0;background:rgba(15,5,50,.55);pointer-events:none;transition:.6s}
+#decor{position:absolute;inset:0;pointer-events:none;font-size:30px;opacity:.6}#decor span{position:absolute}
+#care{font-size:11px;font-weight:700;margin-top:3px;min-height:14px}
+button:focus-visible{outline:3px solid #fff;outline-offset:2px}
+@media (prefers-reduced-motion:reduce){.fl{animation-duration:.01s}}
+</style></head>
+<body><div id="app">
+<header><div><h1 id="nm">Мурзик</h1><div class="sub" id="mood">Привет!</div><div id="care"></div></div><div style="display:grid;gap:6px;justify-items:end"><div class="chip" id="lv">Ур. 1/10</div><div class="chip" id="cn">🪙 20</div><button class="chip" id="pr">💞 Пара</button></div></header>
+<div id="stage"><canvas id="c"></canvas><div id="decor"></div><div id="hint">тыкни, погладь или потяни за хвост</div></div>
+<div class="bars" id="bars"></div>
+<nav class="rooms" id="rooms"></nav><div class="acts" id="acts"></div>
+<div class="wr" id="wr"></div>
+<div id="toast"></div>
+<div id="ov"><div id="ovh"><span id="ot">Игра</span><button class="chip" id="ox">✕ Выйти</button></div>
+<div id="gc"><canvas id="cv"></canvas><div id="pads" style="display:none"></div><div id="menu"></div></div></div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const $=i=>document.getElementById(i),KEY='pet3d_v1';
+const SKINS=[[0xf6a33c,'Рыжик',1],[0xb9b9d4,'Дымка',2],[0xfff3f7,'Зефир',4],[0x35354a,'Ночь',6],[0xff8ac0,'Конфета',8]];
+const ACCS=[['—',1],['👑 Корона',3],['🎀 Бант',5],['🎩 Шляпа',7]];
+const TITLES=['Малыш','Котёнок','Непоседа','Хулиган','Акробат','Умник','Красавец','Герой','Легенда','Король'];
+let S;try{S=JSON.parse(localStorage.getItem(KEY))}catch(e){}
+S=Object.assign({wc:20,sick:false,room:'kitchen',streak:0,lastDay:'',duo:0,duoDay:'',code:'',log:[],rev:0,lv:1,xp:0,coins:20,food:3,sat:70,joy:80,en:90,cln:85,skin:0,acc:0,last:Date.now(),best:{c:0,m:0}},S||{});
+const need=l=>Math.round(30+l*l*9);
+function save(){try{S.last=Date.now();localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
+const cl=v=>Math.max(0,Math.min(100,v));
+function offline(){const m=Math.min((Date.now()-S.last)/60000,240);S.sat=cl(S.sat-m*.25);S.joy=cl(S.joy-m*.15);S.en=cl(S.en+m*.1);S.cln=cl(S.cln-m*.1);S.wc=cl(S.wc+m*.05);S.last=Date.now()}offline();
+function toast(t){const e=$('toast');e.textContent=t;e.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>e.style.display='none',2000)}
+function addXp(n){if(S.lv>=10)return;if(S.sick)n=Math.round(n/3);S.xp+=n;while(S.lv<10&&S.xp>=need(S.lv)){S.xp-=need(S.lv);S.lv++;toast('🎉 Уровень '+S.lv+' — '+TITLES[S.lv-1]);const u=[...SKINS.filter(s=>s[2]==S.lv).map(s=>'скин «'+s[1]+'»'),...ACCS.filter(a=>a[1]==S.lv).map(a=>a[0])];if(u.length)setTimeout(()=>toast('🔓 Открыто: '+u.join(', ')),2100);S.food++;S.coins+=10;buildCat()}if(S.lv>=10)S.xp=0;ui()}
+function float(e,x,y){const d=document.createElement('div');d.className='fl';d.textContent=e;d.style.left=x+'px';d.style.top=y+'px';$('app').appendChild(d);setTimeout(()=>d.remove(),1000)}
+
+// ---------- 3D ----------
+const cv3=$('c'),R=new THREE.WebGLRenderer({canvas:cv3,antialias:true,alpha:true});
+R.setPixelRatio(Math.min(devicePixelRatio,2));
+const sc=new THREE.Scene(),cam=new THREE.PerspectiveCamera(35,1,.1,50);cam.position.set(0,1.3,6.6);cam.lookAt(0,.9,0);
+sc.add(new THREE.HemisphereLight(0xffffff,0xc07ae0,.95));
+const dl=new THREE.DirectionalLight(0xffffff,.8);dl.position.set(3,5,4);sc.add(dl);
+const glow=new THREE.Mesh(new THREE.CircleGeometry(1.7,40),new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:.18}));glow.rotation.x=-Math.PI/2;glow.position.y=-.01;sc.add(glow);
+let cat,P={};
+const M=(c,r=.55)=>new THREE.MeshStandardMaterial({color:c,roughness:r});
+function sph(r,mat,sx=1,sy=1,sz=1){const m=new THREE.Mesh(new THREE.SphereGeometry(r,24,18),mat);m.scale.set(sx,sy,sz);return m}
+function buildCat(){
+ if(cat)sc.remove(cat);cat=new THREE.Group();P={};
+ const col=SKINS[S.skin][0],fur=M(col),light=M(0xffffff,.8),dark=M(0x2a1a3a,.3),pink=M(0xff8fb0);
+ const sz=.75+S.lv*.05;cat.scale.setScalar(sz);
+ const body=sph(.8,fur,1,.95,.9);body.position.y=.8;cat.add(body);P.body=body;
+ const belly=sph(.6,light,.9,.9,.5);belly.position.set(0,.7,.5);cat.add(belly);
+ const head=new THREE.Group();head.position.y=1.95;cat.add(head);P.head=head;
+ head.add(sph(.78,fur,1.12,.95,.95));
+ for(const s of[-1,1]){const e=new THREE.Mesh(new THREE.ConeGeometry(.27,.55,4),fur);e.position.set(s*.52,.68,0);e.rotation.z=-s*.35;head.add(e);
+  const ei=new THREE.Mesh(new THREE.ConeGeometry(.15,.35,4),pink);ei.position.set(s*.52,.64,.1);ei.rotation.z=-s*.35;head.add(ei);
+  const eye=new THREE.Group();eye.position.set(s*.33,.1,.66);eye.add(sph(.16,light,1,1.15,.5));const pu=sph(.1,dark,1,1.2,.5);pu.position.z=.05;eye.add(pu);const hl=sph(.035,light);hl.position.set(.03,.05,.1);eye.add(hl);head.add(eye);(P.eyes=P.eyes||[]).push(eye);
+  const ch=sph(.13,pink,1,.7,.3);ch.position.set(s*.55,-.12,.58);ch.material.transparent=true;ch.material.opacity=.7;head.add(ch);
+  const ar=sph(.2,fur,.9,1.4,.9);ar.position.set(s*.62,.7,.35);cat.add(ar);P['arm'+s]=ar;
+  const ft=sph(.28,fur,1,.7,1.3);ft.position.set(s*.4,.12,.35);cat.add(ft);
+  for(let k=-1;k<=1;k+=2){const w=new THREE.Mesh(new THREE.CylinderGeometry(.008,.008,.5),dark);w.rotation.z=Math.PI/2+k*.15;w.position.set(s*.75,-.1+k*.08,.62);head.add(w)}}
+ const nose=sph(.07,pink,1.3,.9,.8);nose.position.set(0,-.02,.74);head.add(nose);
+ const mo=new THREE.Mesh(new THREE.TorusGeometry(.1,.016,8,16,Math.PI),dark);mo.position.set(0,-.1,.72);mo.rotation.z=Math.PI;head.add(mo);P.mouth=mo;
+ // tail
+ const tail=new THREE.Group();tail.position.set(0,.55,-.7);cat.add(tail);P.tail=[];let par=tail;
+ for(let i=0;i<6;i++){const seg=new THREE.Group();seg.position.set(0,i?.2:0,i?0:0);const b=sph(.15-i*.008,fur,1,1.5,1);b.position.y=.1;seg.add(b);par.add(seg);P.tail.push(seg);par=seg}
+ P.tail[0].rotation.x=-.8;
+ // accessory by id
+ if(S.acc==1){const c=new THREE.Group();const g=M(0xffd23f,.25);const r=new THREE.Mesh(new THREE.CylinderGeometry(.35,.4,.22,16),g);c.add(r);for(let i=0;i<5;i++){const t=new THREE.Mesh(new THREE.ConeGeometry(.09,.25,6),g);const a=i/5*Math.PI*2;t.position.set(Math.cos(a)*.34,.2,Math.sin(a)*.34);c.add(t)}c.position.set(0,.88,0);head.add(c)}
+ if(S.acc==2){const g=M(0xff3d7f);for(const s of[-1,1]){const b=new THREE.Mesh(new THREE.ConeGeometry(.2,.35,3),g);b.rotation.z=s*Math.PI/2;b.position.set(s*.2,.95,.2);head.add(b)}const k=sph(.1,g);k.position.set(0,.95,.2);head.add(k)}
+ if(S.acc==3){const g=M(0x2d2250);const br=new THREE.Mesh(new THREE.CylinderGeometry(.5,.5,.05,20),g);br.position.y=.82;head.add(br);const t=new THREE.Mesh(new THREE.CylinderGeometry(.3,.32,.5,20),g);t.position.y=1.08;head.add(t);const bd=new THREE.Mesh(new THREE.CylinderGeometry(.325,.325,.1,20),M(0xee4c8c));bd.position.y=.92;head.add(bd)}
+ sc.add(cat)}
+buildCat();
+function resize(){const s=$('stage');R.setSize(s.clientWidth,s.clientHeight,false);cam.aspect=s.clientWidth/s.clientHeight;cam.updateProjectionMatrix()}
+addEventListener('resize',resize);resize();
+
+// ---------- состояние / анимация ----------
+let sleeping=false,bounce=0,spin=0,pet=0,washing=0,t0=0;
+function moodTxt(){if(sleeping)return'Спит… 💤';if(S.sick)return'Заболел 🤒 Нужно лекарство';if(S.wc>=80)return'Хочет в туалет 🚽';if(S.sat<20)return'Очень голоден! Покорми';if(S.cln<30)return'Хочет в ванну';if(S.en<20)return'Валится с ног';if(S.joy<30)return'Скучает, поиграй';if(S.joy>80&&S.sat>60)return'Счастлив! 💖';return'Всё хорошо'}
+function happy(){return(S.sat+S.joy+S.en+S.cln)/4}
+function tick(ts){requestAnimationFrame(tick);const t=ts/1000,dt=Math.min(t-t0,.1);t0=t;if(!cat)return;
+ const h=happy()/100*(S.sick?.5:1),sleepy=sleeping?1:0;
+ const br=Math.sin(t*2.2)*.02;P.body.scale.y=.95+br;
+ cat.position.y=Math.max(0,Math.sin(bounce)*.7);if(bounce>0){bounce+=dt*9;if(bounce>Math.PI)bounce=0}
+ cat.rotation.y=Math.sin(t*.7)*.15+spin;spin*=.92;
+ P.head.rotation.z=Math.sin(t*1.1)*.05+(h<.4?.12:0);P.head.rotation.x=sleeping?.35:(h<.4?.1:0);
+ const blink=sleeping||(t%4<.12)?.08:1;P.eyes.forEach(e=>e.scale.y+=(blink-e.scale.y)*.4);
+ P.mouth.rotation.z=h>.5?Math.PI:0;P.mouth.position.y=h>.5?-.1:-.17;
+ const sp=2+h*3;P.tail.forEach((s,i)=>{s.rotation.z=Math.sin(t*sp-i*.6)*(.25+h*.2)*(sleeping?.2:1)});
+ P['arm-1'].rotation.z=.2+Math.sin(t*3)*(pet>0?.5:.05);P.arm1.rotation.z=-.2;
+ if(pet>0)pet-=dt;
+ // деградация
+ const k=dt*(sleeping?.3:1);S.sat=cl(S.sat-k*.2);S.joy=cl(S.joy-k*.1);S.cln=cl(S.cln-k*.07);S.wc=cl(S.wc+k*.03);if(S.wc>=100){S.wc=30;S.cln=cl(S.cln-30);S.joy=cl(S.joy-15);toast('💦 Не дотерпел! Скорее мыть')}if(S.sick)S.joy=cl(S.joy-k*.15);if(S.cln<15||S.sat<8)S.sickT=(S.sickT||0)+dt;else S.sickT=0;if(S.sickT>40&&!S.sick){S.sick=true;S.sickT=0;toast('🤒 Заболел от недосмотра')}
+ if(sleeping){S.en=cl(S.en+dt*6);S.sat=cl(S.sat-dt*.05);if(S.en>=99){sleeping=false;lastSleepEnd=Date.now();if(sleepStart<50){toast('☀️ Выспался!');addXp(8)}else toast('☀️ Подремал, но опыта за это нет')}}else S.en=cl(S.en-dt*.05);
+ R.render(sc,cam)}
+requestAnimationFrame(tick);
+setInterval(()=>{ui();save()},1000);
+
+function ui(){
+ $('nm').textContent='Мурзик';$('lv').textContent='Ур. '+S.lv+'/10';$('cn').textContent='🪙 '+S.coins+' · 🔥'+S.streak;$('mood').textContent=moodTxt();
+ const rows=[['Прогресс',S.lv>=10?100:S.xp/need(S.lv)*100,S.lv>=10?'MAX':Math.floor(S.xp)+'/'+need(S.lv)],['Сытость',S.sat],['Радость',S.joy],['Энергия',S.en],['Туалет',S.wc],['Чистота',S.cln]];
+ $('bars').innerHTML=rows.map(r=>`<div class="bar"><span>${r[0]}</span><i><b style="width:${r[1]}%"></b></i><em>${r[2]||Math.round(r[1])+'%'}</em></div>`).join('');
+ renderActs();$('stage').classList.toggle('dark',sleeping);$('pr').textContent=S.code?'💞 '+S.duo+' дн.':'💞 Пара';{const L=(S.log||[]).filter(l=>l.u!==(UID||'me')).pop();$('care').textContent=L?'💞 Партнёр '+(VERB[L.a]||'позаботился')+' '+ago(L.t):(S.code?'Ждём заботы партнёра…':'Подключите партнёра — кнопка 💞')}
+ $('wr').innerHTML='<span>Гардероб</span>'+SKINS.map((s,i)=>`<button class="sw ${S.skin==i?'on':''} ${S.lv<s[2]?'lock':''}" data-s="${i}" style="background:#${s[0].toString(16).padStart(6,'0')}" title="${s[1]} (ур. ${s[2]})"></button>`).join('')+ACCS.map((a,i)=>`<button class="tag ${S.acc==i?'on':''} ${S.lv<a[1]?'lock':''}" data-a="${i}">${S.lv<a[1]?'🔒'+a[1]:a[0]}</button>`).join('')}
+$('wr').onclick=e=>{const b=e.target.closest('button');if(!b)return;if(b.dataset.s!=null){const i=+b.dataset.s;if(S.lv<SKINS[i][2])return toast('Откроется на уровне '+SKINS[i][2]);S.skin=i}else{const i=+b.dataset.a;if(S.lv<ACCS[i][1])return toast('Откроется на уровне '+ACCS[i][1]);S.acc=i}buildCat();ui();save()};
+
+// ---------- забота ----------
+const today=()=>new Date().toISOString().slice(0,10);
+const VERB={feed:'покормил(а)',wash:'искупал(а)',wc:'сводил(а) в туалет',sleep:'уложил(а) спать',med:'вылечил(а)',game:'поиграл(а)'};
+const ago=t=>{const m=Math.max(0,Math.round((Date.now()-t)/60000));return m<1?'только что':m<60?m+' мин назад':Math.round(m/60)+' ч назад'};
+let DB=null,UID=null,pdoc=null,applying=false,seenT=Date.now();
+const SYNC=['lv','xp','coins','food','sat','joy','en','cln','wc','sick','skin','acc','duo','duoDay','best','log','last','rev'];
+function push(){if(!pdoc||applying)return;const o={};SYNC.forEach(k=>o[k]=S[k]);pdoc.set(o).catch(()=>{})}
+function touch(a){S.rev=Date.now();S.log=[...(S.log||[]),{u:UID||'me',a,t:Date.now()}].slice(-6);
+ const d=today(),us=new Set(S.log.filter(l=>new Date(l.t).toISOString().slice(0,10)===d).map(l=>l.u));
+ if(us.size>1&&S.duoDay!==d){S.duoDay=d;S.duo++;S.coins+=15;S.food++;toast('💞 Вы оба заботились сегодня! +15🪙 +1🍱')}
+ save();push();ui()}
+const FOODS=[{k:'apple',e:'🍎',n:'Яблоко',c:5,sat:12,joy:0,wc:8},{k:'sushi',e:'🍣',n:'Суши',f:1,sat:25,joy:5,wc:15},{k:'cake',e:'🍰',n:'Торт',c:15,sat:12,joy:20,wc:12}];
+let lastFeed=0,lastWash=0,sleepStart=0,lastSleepEnd=0;
+function feed(k){const f=FOODS.find(x=>x.k==k),now=Date.now();
+ if(S.sat>=85)return toast('😋 Он сыт и не хочет есть');
+ if(now-lastFeed<8000)return toast('⏳ Дай прожевать');
+ if(f.c&&S.coins<f.c)return toast('Не хватает монет');if(f.f&&S.food<1)return toast('Нет корма — заработай в играх');
+ lastFeed=now;S.coins-=f.c||0;S.food-=f.f||0;const hungry=S.sat<60;S.sat=cl(S.sat+f.sat);S.joy=cl(S.joy+f.joy);S.wc=cl(S.wc+f.wc);
+ if(k=='cake'&&!hungry&&Math.random()<.4){S.sick=true;toast('🤒 Переел торта — заболел!')}else if(hungry)addXp(6);else toast('Вкусно, но опыта нет');
+ bounce=.01;float(f.e,innerWidth/2,300);touch('feed')}
+function wash(){const now=Date.now();if(S.cln>=90)return toast('✨ Он и так чистый');if(now-lastWash<15000)return toast('⏳ Дай обсохнуть');
+ lastWash=now;const d=S.cln<60;S.cln=cl(S.cln+30);spin=6;if(d)addXp(5);else toast('Приятно, но опыта нет');
+ for(let i=0;i<6;i++)setTimeout(()=>float('🫧',120+Math.random()*200,260+Math.random()*80),i*90);touch('wash')}
+function toilet(){if(S.wc<40)return toast('🚽 Пока не хочет');const u=S.wc>=60;S.wc=0;S.cln=cl(S.cln-4);if(u)addXp(4);toast('Полегчало 😌');touch('wc')}
+function medicine(){if(!S.sick)return toast('Он здоров 💪');if(S.coins<20)return toast('Нужно 20 🪙');S.coins-=20;S.sick=false;S.joy=cl(S.joy-5);toast('💊 Выздоровел!');touch('med')}
+function sleepToggle(){const now=Date.now();
+ if(sleeping){sleeping=false;lastSleepEnd=now;toast('Проснулся раньше времени');ui();return}
+ if(S.en>=80)return toast('😼 Он бодр и спать не хочет');
+ if(now-lastSleepEnd<30000)return toast('⏳ Только проснулся — подожди '+Math.ceil((30000-(now-lastSleepEnd))/1000)+' с');
+ sleeping=true;sleepStart=S.en;touch('sleep')}
+function openGames(){if(S.en<15)return toast('Мало энергии');ov.classList.add('show');showMenu()}
+const ROOMS={kitchen:['🍽','Кухня','🍳 🥕 🧀'],bath:['🛁','Ванная','🫧 🛁 🧴'],bed:['🛏','Спальня','🌙 🧸 ⭐'],play:['🎮','Игровая','🎈 🧸 🎲']};
+const POS=[[6,8],[78,10],[84,58],[4,60]];
+function acts(){const r=S.room,z=sleeping&&r!='bed';
+ if(r=='kitchen')return FOODS.map(f=>[f.e,f.n,f.c?f.c+'🪙':'1🍱 ('+S.food+')',()=>feed(f.k),z]).concat([['💊','Лекарство','20🪙',medicine,z]]);
+ if(r=='bath')return[['🧼','Мыть','',wash,z],['🚽','Туалет','',toilet,z]];
+ if(r=='bed')return[[sleeping?'☀️':'🌙',sleeping?'Проснуться':'Спать','',sleepToggle,false]];
+ return[['🎮','Играть','',openGames,z]]}
+function renderActs(){const a=acts(),sig=S.room+JSON.stringify(a.map(x=>[x[0],x[1],x[2],x[4]]));
+ $('acts').onclick=e=>{const b=e.target.closest('button');if(b&&!b.disabled)a[b.dataset.i][3]()};
+ if(renderActs.s===sig)return;renderActs.s=sig;
+ $('acts').innerHTML=a.map((x,i)=>`<button class="act" data-i="${i}"${x[4]?' disabled':''}><span>${x[0]}</span>${x[1]}<small>${x[2]}</small></button>`).join('');
+ $('rooms').innerHTML=Object.entries(ROOMS).map(([k,v])=>`<button class="rm ${k==S.room?'on':''}" data-k="${k}">${v[0]} ${v[1]}</button>`).join('');
+ $('stage').dataset.r=S.room;$('decor').innerHTML=ROOMS[S.room][2].split(' ').map((e,i)=>`<span style="left:${POS[i][0]}%;top:${POS[i][1]}%">${e}</span>`).join('')}
+$('rooms').onclick=e=>{const b=e.target.closest('[data-k]');if(b&&ROOMS[b.dataset.k]){S.room=b.dataset.k;save();ui()}};
+function daily(){const d=today();if(S.lastDay===d)return;const y=new Date(Date.now()-864e5).toISOString().slice(0,10);S.streak=S.lastDay===y?S.streak+1:1;S.lastDay=d;const c=10+Math.min(S.streak,7)*5;S.coins+=c;S.food++;setTimeout(()=>toast('🎁 День '+S.streak+': +'+c+'🪙 +1🍱'),700);save()}
+// ---------- общий питомец пары ----------
+async function connectPair(code){S.code=code;save();let U=null;
+ try{DB=window.claude&&await claude.use('db');U=window.claude&&await claude.use('user')}catch(e){}
+ if(!DB)return toast('Общий питомец доступен после входа в аккаунт');
+ try{UID=U?await U.id():null}catch(e){}
+ pdoc=DB.doc('pets/'+code);let first=true;
+ pdoc.onSnapshot(sn=>{const d=sn.exists?sn.data():null;
+  if(!d){if(first)push();first=false;return}first=false;
+  if(d.rev===S.rev)return;if(S.rev&&d.rev<S.rev){push();return}
+  applying=true;const N=['xp','coins','food','sat','joy','en','cln','wc','duo','last','rev'];
+  N.forEach(k=>{if(Number.isFinite(d[k]))S[k]=d[k]});
+  if(Number.isInteger(d.lv))S.lv=Math.max(1,Math.min(10,d.lv));if(Number.isInteger(d.skin))S.skin=Math.max(0,Math.min(4,d.skin));if(Number.isInteger(d.acc))S.acc=Math.max(0,Math.min(3,d.acc));
+  S.sick=d.sick===true;if(typeof d.duoDay==='string')S.duoDay=d.duoDay.slice(0,10);
+  if(d.best&&typeof d.best==='object')['c','m','p'].forEach(k=>{if(Number.isFinite(d.best[k]))S.best[k]=d.best[k]});
+  if(Array.isArray(d.log))S.log=d.log.slice(-6).map(l=>({u:String(l&&l.u).slice(0,64),a:String(l&&l.a).slice(0,12),t:Number(l&&l.t)||0}));
+  const L=(S.log||[]).filter(l=>l.u!==(UID||'me')&&l.t>seenT).pop();if(L){seenT=L.t;toast('💞 Партнёр '+(VERB[L.a]||'позаботился'))}
+  offline();buildCat();applying=false;ui()},()=>{});
+ toast('💞 Подключено: '+code)}
+$('pr').onclick=()=>{ov.classList.add('show');gv.style.display='none';$('pads').style.display='none';$('ot').textContent='Пара';const m=$('menu');m.style.display='flex';
+ m.innerHTML=`<div class="big">Общий питомец<small>Введите один код на двоих — и вы вместе ухаживаете за одним котом</small><input id="pc2" value="${S.code||Math.random().toString(36).slice(2,6)}" maxlength="12" aria-label="Код пары" style="margin-top:10px;width:100%;font:inherit;font-weight:900;font-size:22px;text-align:center;border-radius:14px;border:0;padding:8px;background:#fff;color:#7a2a78"></div><button class="big" id="pj2">Подключить</button><button class="big" id="pb2">Назад</button>`;
+ $('pb2').onclick=()=>ov.classList.remove('show');
+ $('pj2').onclick=()=>{const c=$('pc2').value.toLowerCase().replace(/[^a-z0-9]/g,'').slice(0,12);if(c.length<3)return toast('Код: минимум 3 символа');ov.classList.remove('show');connectPair(c)}};
+let lastTap=0;
+cv3.addEventListener('pointerdown',e=>{if(sleeping){sleeping=false;toast('Разбудил 😾');S.joy=cl(S.joy-5);return}
+ const r=cv3.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
+ bounce=.01;pet=1;S.joy=cl(S.joy+3);const n=Date.now();if(n-lastTap<400)addXp(1);lastTap=n;float(['💖','✨','💕'][Math.random()*3|0],x,y);ui()});
+
+// ---------- мини-игры ----------
+const ov=$('ov'),gv=$('cv'),g=gv.getContext('2d');let game=null;
+
+$('ox').onclick=()=>{endGame(true);ov.classList.remove('show')};
+function showMenu(){$('ot').textContent='Во что поиграем?';gv.style.display='none';$('pads').style.display='none';const m=$('menu');m.style.display='flex';
+ m.innerHTML=`<button class="big" id="g1">⭐ Лови звёзды<small>Двигай корзину. Рекорд: ${S.best.c}</small></button><button class="big" id="g2">🎵 Мелодия<small>Повтори последовательность. Рекорд: ${S.best.m}</small></button><button class="big" id="g3">💞 Вдвоём онлайн<small>Угадайте друг друга в реальном времени</small></button><small style="opacity:.8">Игры стоят энергии и приносят монеты, опыт и корм</small>`;
+ $('g1').onclick=startCatch;$('g2').onclick=startMemory;$('g3').onclick=startPair}
+function endGame(silent){if(game&&game.stop)game.stop();game=null}
+function reward(kind,score){const c=Math.round(score*(kind=='c'?1:3)),xp=Math.round(score*(kind=='c'?1.5:4)),f=Math.floor(score/(kind=='c'?8:2)/1);
+ if(score>(S.best[kind]||0))S.best[kind]=score;S.coins+=c;S.food+=Math.min(f,3);S.joy=cl(S.joy+15);S.en=cl(S.en-12);addXp(xp);touch('game');
+ $('menu').style.display='flex';gv.style.display='none';$('pads').style.display='none';
+ $('menu').innerHTML=`<div class="big">Результат: ${score}<small>+${c} 🪙 · +${xp} опыта${f?' · +'+Math.min(f,3)+' 🍱':''}</small></div><button class="big" id="ag">Ещё раз</button><button class="big" id="bk">Назад</button>`;
+ $('ag').onclick=kind=='c'?startCatch:kind=='p'?startPair:startMemory;$('bk').onclick=()=>{ov.classList.remove('show');ui()}}
+function startCatch(){if(S.en<15)return toast('Мало энергии');$('menu').style.display='none';gv.style.display='block';$('ot').textContent='Лови звёзды';
+ gv.width=gv.clientWidth;gv.height=gv.clientHeight;const W=gv.width,H=gv.height;
+ let px=W/2,score=0,lives=3,tl=30,items=[],last=performance.now(),raf,run=true,spawn=0;
+ const mv=e=>{px=e.clientX-gv.getBoundingClientRect().left};gv.onpointermove=mv;gv.onpointerdown=mv;
+ const lvl=S.lv;
+ function loop(n){if(!run)return;raf=requestAnimationFrame(loop);const dt=Math.min((n-last)/1000,.05);last=n;tl-=dt;spawn-=dt;
+  if(spawn<=0){spawn=.7-lvl*.03;const r=Math.random();items.push({x:30+Math.random()*(W-60),y:-20,v:150+lvl*14+Math.random()*80,t:r<.65?'⭐':r<.8?'💖':'💣'})}
+  g.clearRect(0,0,W,H);g.font='28px serif';g.textAlign='center';
+  items.forEach(i=>i.y+=i.v*dt);
+  items=items.filter(i=>{if(i.y>H-70&&i.y<H-30&&Math.abs(i.x-px)<44){if(i.t=='⭐')score++;else if(i.t=='💖')score+=3;else{lives--;navigator.vibrate&&navigator.vibrate(60)}return false}return i.y<H+30});
+  items.forEach(i=>g.fillText(i.t,i.x,i.y));
+  g.font='46px serif';g.fillText('🧺',px,H-30);
+  g.fillStyle='#fff';g.font='700 16px sans-serif';g.textAlign='left';g.fillText('Очки: '+score,14,26);g.textAlign='right';g.fillText('❤️'.repeat(Math.max(lives,0))+'  ⏱ '+Math.max(0,Math.ceil(tl)),W-14,26);
+  if(tl<=0||lives<=0){run=false;gv.onpointermove=null;reward('c',score)}}
+ raf=requestAnimationFrame(loop);game={stop(){run=false;cancelAnimationFrame(raf)}}}
+function startMemory(){if(S.en<15)return toast('Мало энергии');$('menu').style.display='none';gv.style.display='none';const pd=$('pads');pd.style.display='grid';$('ot').textContent='Мелодия';
+ const cols=['#ff5d8f','#ffd23f','#3fd1a5','#5aa9ff'];pd.innerHTML=cols.map((c,i)=>`<button class="pad" data-i="${i}" style="background:${c}" aria-label="Кнопка ${i+1}"></button>`).join('');
+ const ps=[...pd.children];let seq=[],pos=0,busy=true,round=0,alive=true;
+ const ac=new(window.AudioContext||window.webkitAudioContext||function(){})();
+ function beep(i){try{const o=ac.createOscillator(),gn=ac.createGain();o.frequency.value=[392,494,587,784][i];gn.gain.value=.15;o.connect(gn);gn.connect(ac.destination);o.start();o.stop(ac.currentTime+.2)}catch(e){}}
+ const lit=(i)=>{beep(i);ps[i].classList.add('lit');setTimeout(()=>ps[i].classList.remove('lit'),280)};
+ async function show(){busy=true;$('ot').textContent='Смотри… раунд '+(round+1);await new Promise(r=>setTimeout(r,600));for(const i of seq){if(!alive)return;lit(i);await new Promise(r=>setTimeout(r,520))}busy=false;pos=0;$('ot').textContent='Повторяй!'}
+ function next(){seq.push(Math.random()*4|0);round=seq.length-1;show()}
+ pd.onclick=e=>{const b=e.target.closest('.pad');if(!b||busy)return;const i=+b.dataset.i;lit(i);if(i!==seq[pos]){alive=false;const sc=seq.length-1;setTimeout(()=>reward('m',sc),500);return}
+  if(++pos==seq.length){busy=true;setTimeout(next,700)}};
+ game={stop(){alive=false}};next()}
+
+// ---------- игра для пары онлайн ----------
+const QS=[['Идеальный вечер',['🎬 Кино дома','🚶 Прогулка','🍝 Ресторан','🎲 Игры']],['Отпуск мечты',['🏖 Море','⛰ Горы','🏙 Город','🏡 Деревня']],['Завтрак',['☕ Кофе и круассан','🍳 Яичница','🥣 Каша','🍓 Фрукты']],['Утро или ночь',['🌅 Жаворонок','🌙 Сова','😴 Как выйдет','⚡ Всегда бодр']],['Лучший подарок',['🎁 Сюрприз','💍 Вещь мечты','✈️ Поездка','💌 Письмо']],['Ужин',['🍕 Пицца','🍣 Суши','🍔 Бургер','🍝 Паста']],['Выходной',['🛌 Спать','🏃 Спорт','👯 Гости','🧹 Дела']],['Кого завести',['🐱 Кота','🐶 Собаку','🦜 Попугая','🐠 Рыбок']],['Чем заняться',['📺 Сериал','📖 Книга','🎮 Игры','🎧 Музыка']],['Любимый сезон',['☀️ Лето','❄️ Зима','🍂 Осень','🌸 Весна']],['Свидание',['☕ Кафе','🌳 Парк','🍿 Кино','🏠 Дома']],['Сладкое',['🍫 Шоколад','🍦 Мороженое','🍰 Торт','🍎 Фрукты']]];
+function startPair(){gv.style.display='none';$('pads').style.display='none';const m=$('menu');m.style.display='flex';$('ot').textContent='Вдвоём онлайн';
+ const rand=Math.random().toString(36).slice(2,6);
+ m.innerHTML=`<div class="big">Код вашей пары<small>Отправьте код партнёру — оба вводите один и тот же</small><input id="pc" value="${rand}" maxlength="12" aria-label="Код пары" style="margin-top:10px;width:100%;font:inherit;font-weight:900;font-size:22px;text-align:center;border-radius:14px;border:0;padding:8px;background:#fff;color:#7a2a78"></div><button class="big" id="pj">Подключиться</button><button class="big" id="pb">Назад</button>`;
+ $('pb').onclick=showMenu;
+ $('pj').onclick=async()=>{const code=$('pc').value.toLowerCase().replace(/[^a-z0-9]/g,'').slice(0,12);if(code.length<3)return toast('Код: минимум 3 символа');
+  let RM=null;try{RM=window.claude&&await claude.use('room')}catch(e){}
+  if(!RM)return toast('Онлайн недоступен в этом окне');
+  let nr;try{nr=await RM.join('cj-'+code)}catch(e){return toast('Не удалось подключиться')}
+  runPair(nr,code)}}
+function runPair(room,code){
+ const N=8;let h=[],r=0,rt=0,done=false,unsub=()=>{};const m=$('menu');
+ let sd=0;for(const c of code)sd=(sd*31+c.charCodeAt(0))>>>0;
+ const rnd=()=>(sd=(sd*1664525+1013904223)>>>0)/4294967296;
+ const ord=QS.map((_,i)=>i);for(let i=ord.length-1;i>0;i--){const j=Math.floor(rnd()*(i+1));[ord[i],ord[j]]=[ord[j],ord[i]]}
+ const other=()=>room.peers().find(p=>!p.isMe&&p.kind==='viewer');
+ const ph=()=>{const p=other(),a=p&&p.presence&&p.presence.h;return Array.isArray(a)?a.map(x=>Number.isInteger(x)&&x>=0&&x<4?x:null):[]};
+ const matches=()=>{const p=ph();let n=0;for(let i=0;i<=Math.min(r,N-1);i++)if(h[i]!=null&&h[i]===p[i])n++;return n};
+ function stop(){done=true;clearTimeout(rt);unsub();m.onclick=null;room.leave().catch(()=>{})}
+ function draw(){if(done)return;
+  if(!other()){m.innerHTML=`<div class="big">Ждём партнёра…<small>Код: <b>${code}</b>. Пусть откроет эту игру и введёт его</small></div>`;return}
+  if(r>=N){const sc=matches();done=true;clearTimeout(rt);unsub();m.onclick=null;setTimeout(()=>room.leave().catch(()=>{}),4000);game=null;reward('p',sc);return}
+  const q=QS[ord[r]],p=ph(),mine=h[r],head=`<small>Вопрос ${r+1} из ${N} · совпадений: ${matches()}</small>`;
+  if(mine==null){m.innerHTML=head+`<div class="big">${q[0]}<small>Выбирайте каждый своё. Совпадёте — +1 к вашей связи</small></div>`+q[1].map((o,i)=>`<button class="big" data-i="${i}">${o}</button>`).join('');return}
+  if(p[r]==null){m.innerHTML=head+`<div class="big">Ты выбрал: ${q[1][mine]}<small>Ждём ответ партнёра…</small></div>`;return}
+  const ok=p[r]===mine;
+  m.innerHTML=head+`<div class="big">${ok?'💞 Совпало!':'🙈 Не совпало'}<small>Ты: ${q[1][mine]}<br>Партнёр: ${q[1][p[r]]}</small></div>`;
+  if(ok&&!rt)for(let i=0;i<4;i++)setTimeout(()=>float('💖',80+Math.random()*220,260+Math.random()*120),i*120);
+  if(!rt)rt=setTimeout(()=>{rt=0;r++;draw()},2400)}
+ m.onclick=e=>{const b=e.target.closest('[data-i]');if(!b||h[r]!=null)return;h[r]=+b.dataset.i;room.presence({h:[...h]}).catch(()=>{});draw()};
+ room.presence({h:[]}).catch(()=>{});unsub=room.onPeers(()=>draw(),()=>{});
+ game={stop};draw()}
+daily();ui();if(S.code)connectPair(S.code);
+</script></body></html>

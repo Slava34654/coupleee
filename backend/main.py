@@ -371,6 +371,12 @@ def pwa_sw():
     return FileResponse(os.path.join(WEB_DIR, "sw.js"),
                         media_type="application/javascript")
 
+@app.get("/pet3d.html", include_in_schema=False)
+def pet3d():
+    """3D-питомец (Three.js): уход, комнаты, мини-игры. Прогресс хранится локально в браузере."""
+    return FileResponse(os.path.join(WEB_DIR, "pet3d.html"),
+                        media_type="text/html")
+
 @app.get("/icons/{name}", include_in_schema=False)
 def pwa_icon(name: str):
     if name not in ("icon-192.png", "icon-512.png",
