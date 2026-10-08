@@ -24,6 +24,13 @@ data class PairResp(val user_id: Int, val pair_code: String?, val partner_id: In
 data class PairReq(val name: String, val birth: String = "", val avatar: String = "",
                    val since: String = "")
 data class JoinReq(val name: String, val code: String, val birth: String = "", val avatar: String = "")
+data class RegisterReq(val email: String, val password: String, val name: String,
+                       val birth: String = "", val avatar: String = "", val since: String = "",
+                       val partner_code: String = "")
+data class LoginReq(val email: String, val password: String)
+data class AuthResp(val user_id: Int, val pair_code: String, val partner_id: Int? = null,
+                    val token: String, val name: String, val birth: String = "",
+                    val avatar: String = "", val together_since: String = "")
 data class MoodInfo(val mood: String, val note: String, val ts: String)
 data class Partner(val id: Int, val name: String, val birth: String = "",
                   val avatar: String = "", val age: Int? = null)
@@ -79,6 +86,8 @@ data class LinkCode(val code: String)
 data class PremiumOut(val premium: Boolean, val until: String)
 
 interface Api {
+    @POST("auth/register") suspend fun register(@Body b: RegisterReq): AuthResp
+    @POST("auth/login") suspend fun login(@Body b: LoginReq): AuthResp
     @POST("pair") suspend fun pair(@Body b: PairReq): PairResp
     @POST("pair/join") suspend fun join(@Body b: JoinReq): PairResp
     @GET("me") suspend fun me(@Query("user_id") u: Int): MeResp

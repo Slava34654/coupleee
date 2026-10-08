@@ -117,7 +117,7 @@ class MainActivity : ComponentActivity() {
         ApiClient.authToken = prefs.getString("token", "") ?: ""
         scheduleWidget(this)
         scheduleDistanceWidget(this)
-        if (vm.userId == null) {
+        if (vm.userId == null && ApiClient.authToken.isNotBlank()) {
             vm.userId = prefs.getInt("uid", -1).takeIf { it >= 0 }
         }
         setContent { CoupleApp(this, vm, prefs) }

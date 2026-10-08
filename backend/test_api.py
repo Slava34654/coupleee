@@ -29,6 +29,24 @@ def _p(*a, **k): return _raw_post(*a, **_tok_headers(k))
 def _d(*a, **k): return _raw_delete(*a, **_tok_headers(k))
 c.get, c.post, c.delete = _g, _p, _d
 
+# регистрация и вход по почте работают без кода подтверждения
+r = c.post("/auth/register", json={"email": " New@Example.com ", "password": "secret12",
+                                      "name": "Новый", "since": "2024-01-02"})
+assert r.status_code == 200, r.text
+auth_user = r.json()
+assert auth_user["token"] and auth_user["pair_code"]
+assert c.post("/auth/register", json={"email": "new@example.com", "password": "secret12",
+                                       "name": "Дубль"}).status_code == 409
+assert c.post("/auth/login", json={"email": "new@example.com", "password": "wrong12"}).status_code == 401
+r = c.post("/auth/login", json={"email": "NEW@example.com", "password": "secret12"})
+assert r.status_code == 200 and r.json()["user_id"] == auth_user["user_id"], r.text
+assert r.json()["token"] != auth_user["token"]
+assert _raw_get("/me", params={"user_id": auth_user["user_id"]},
+                headers={"X-Auth-Token": auth_user["token"]}).status_code == 401
+assert _raw_get("/me", params={"user_id": auth_user["user_id"]},
+                headers={"X-Auth-Token": r.json()["token"]}).status_code == 200
+print("email auth OK")
+
 r = c.post("/pair", json={"name": "Алекс"})
 assert r.status_code == 200 and r.json()["token"], r.text  # дата рождения необязательна
 r = c.post("/pair", json={"name": "Алекс", "birth": "не дата"})

@@ -13,6 +13,7 @@ from typing import Optional, List
 from contextvars import ContextVar
 from starlette.middleware.base import BaseHTTPMiddleware
 import secrets
+import hashlib
 import sqlite3
 import datetime
 import json
@@ -345,6 +346,12 @@ def init_db():
         c.execute("ALTER TABLE users ADD COLUMN avatar TEXT DEFAULT ''")
     if "token" not in cols_u:
         c.execute("ALTER TABLE users ADD COLUMN token TEXT DEFAULT ''")
+    if "email" not in cols_u:
+        c.execute("ALTER TABLE users ADD COLUMN email TEXT")
+    if "password_hash" not in cols_u:
+        c.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
+    c.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_email_uq "
+              "ON users(email) WHERE email IS NOT NULL AND email != ''")
     for r in c.execute("SELECT id FROM users WHERE token IS NULL OR token=''").fetchall():
         c.execute("UPDATE users SET token=? WHERE id=?", (new_token(), r["id"]))
     # геопозиция для виджета «расстояние» (хранится только последняя точка)
@@ -570,6 +577,19 @@ class JoinIn(BaseModel):
     birth: str = ""
     avatar: str = ""
 
+class AuthRegisterIn(BaseModel):
+    email: str
+    password: str
+    name: str
+    birth: str = ""
+    avatar: str = ""
+    since: str = ""
+    partner_code: str = ""
+
+class AuthLoginIn(BaseModel):
+    email: str
+    password: str
+
 class MoodIn(BaseModel):
     user_id: int
     mood: str
@@ -633,6 +653,44 @@ class GameActionIn(BaseModel):
 def new_code():
     return "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
 
+def normalize_email(email: str) -> str:
+    value = email.strip().lower()
+    if len(value) > 254 or value.count("@") != 1:
+        raise HTTPException(400, "invalid email")
+    local, domain = value.split("@")
+    if not local or "." not in domain or domain.startswith(".") or domain.endswith("."):
+        raise HTTPException(400, "invalid email")
+    return value
+
+def hash_password(password: str) -> str:
+    if not 6 <= len(password) <= 128:
+        raise HTTPException(400, "password must contain 6 to 128 characters")
+    salt = secrets.token_bytes(16)
+    digest = hashlib.scrypt(password.encode("utf-8"), salt=salt,
+                            n=16384, r=8, p=1, dklen=32)
+    return f"scrypt${salt.hex()}${digest.hex()}"
+
+def verify_password(password: str, stored: str) -> bool:
+    try:
+        algorithm, salt_hex, digest_hex = stored.split("$", 2)
+        if algorithm != "scrypt":
+            return False
+        actual = hashlib.scrypt(password.encode("utf-8"),
+                                salt=bytes.fromhex(salt_hex),
+                                n=16384, r=8, p=1, dklen=32)
+        return secrets.compare_digest(actual, bytes.fromhex(digest_hex))
+    except (ValueError, TypeError):
+        return False
+
+def auth_response(user, token: str):
+    return {
+        "user_id": user["id"], "pair_code": user["pair_code"],
+        "partner_id": user["partner_id"], "token": token,
+        "name": user["name"], "birth": user["birth"] or "",
+        "avatar": user["avatar"] or "",
+        "together_since": user["together_since"],
+    }
+
 def check_birth(birth: str) -> str:
     try:
         bd = datetime.date.fromisoformat(birth)
@@ -658,6 +716,75 @@ def check_since(since: str) -> str:
     if not (datetime.date(1900, 1, 1) <= d <= datetime.date.today()):
         raise HTTPException(400, "bad since date")
     return since
+
+@app.post("/auth/register")
+async def auth_register(body: AuthRegisterIn):
+    email = normalize_email(body.email)
+    password_hash = hash_password(body.password)
+    name = body.name.strip()
+    if not name or len(name) > 80:
+        raise HTTPException(400, "invalid name")
+    if body.birth:
+        check_birth(body.birth)
+
+    con = db()
+    try:
+        if con.execute("SELECT 1 FROM users WHERE email=?", (email,)).fetchone():
+            raise HTTPException(409, "email already registered")
+        partner = None
+        if body.partner_code.strip():
+            partner = con.execute("SELECT * FROM users WHERE pair_code=?",
+                                  (body.partner_code.strip().upper(),)).fetchone()
+            if not partner:
+                raise HTTPException(404, "code not found")
+            if partner["partner_id"]:
+                raise HTTPException(400, "code already used")
+            since = partner["together_since"]
+        else:
+            since = check_since(body.since) if body.since else today()
+
+        token = new_token()
+        cur = con.execute(
+            "INSERT INTO users(name,pair_code,partner_id,together_since,birth,avatar,token,email,password_hash) "
+            "VALUES(?,?,?,?,?,?,?,?,?)",
+            (name, new_code(), partner["id"] if partner else None, since,
+             body.birth, body.avatar, token, email, password_hash))
+        uid = cur.lastrowid
+        if partner:
+            con.execute("UPDATE users SET partner_id=? WHERE id=?", (uid, partner["id"]))
+        con.commit()
+        user = con.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
+    except sqlite3.IntegrityError:
+        con.rollback()
+        raise HTTPException(409, "email already registered")
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+    _request_token.set(token)
+    if partner:
+        await wsman.ping_couple(uid, "pair")
+    return auth_response(user, token)
+
+@app.post("/auth/login")
+def auth_login(body: AuthLoginIn):
+    email = normalize_email(body.email)
+    if not 6 <= len(body.password) <= 128:
+        raise HTTPException(401, "invalid email or password")
+    con = db()
+    user = con.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
+    if not user or not user["password_hash"] or not verify_password(body.password, user["password_hash"]):
+        con.close()
+        raise HTTPException(401, "invalid email or password")
+    token = new_token()
+    con.execute("UPDATE users SET token=? WHERE id=?", (token, user["id"]))
+    con.commit()
+    user = con.execute("SELECT * FROM users WHERE id=?", (user["id"],)).fetchone()
+    con.close()
+    _request_token.set(token)
+    return auth_response(user, token)
 
 @app.post("/pair")
 def pair_create(body: PairIn):

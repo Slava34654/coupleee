@@ -75,6 +75,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -244,7 +245,8 @@ fun CjField(
     modifier: Modifier = Modifier.fillMaxWidth(),
     singleLine: Boolean = true,
     minLines: Int = 1,
-    keyboard: KeyboardOptions = KeyboardOptions.Default
+    keyboard: KeyboardOptions = KeyboardOptions.Default,
+    visualTransformation: VisualTransformation = VisualTransformation.None
 ) {
     val x = LocalCj.current
     OutlinedTextField(
@@ -253,6 +255,7 @@ fun CjField(
         singleLine = singleLine,
         minLines = if (singleLine) 1 else minLines,
         keyboardOptions = keyboard,
+        visualTransformation = visualTransformation,
         shape = RoundedCornerShape(18.dp),
         colors = OutlinedTextFieldDefaults.colors(
             focusedBorderColor = x.accentA,
