@@ -66,7 +66,7 @@ assert d["partner_answer"] == "Поездка на море", d
 print("daily OK:", d["question"]["text"][:40])
 
 qs = c.get("/quizzes").json()
-assert len(qs) == 2, qs
+assert len(qs) == 7, qs
 quiz = c.get(f"/quiz/{qs[0]['id']}", params={"user_id": A}).json()
 assert len(quiz["questions"]) == 5
 for i, qq in enumerate(quiz["questions"]):

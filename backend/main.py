@@ -85,6 +85,51 @@ QUIZZES = [
          {"text": "На отдыхе: пляж или экскурсии?", "options": ["Пляж", "Экскурсии"]},
          {"text": "Сладкое или солёное?", "options": ["Сладкое", "Солёное"]},
          {"text": "Лето или зима?", "options": ["Лето", "Зима"]},
+      ]},
+    {"title": "Язык любви 💗",
+     "questions": [
+         {"text": "Что сильнее всего помогает почувствовать любовь?", "options": ["Тёплые слова", "Время вдвоём", "Помощь и забота", "Прикосновения"]},
+         {"text": "Какой сюрприз приятнее?", "options": ["Любовное сообщение", "Спонтанное свидание", "Полезная помощь", "Небольшой подарок"]},
+         {"text": "После тяжёлого дня хочется…", "options": ["Поговорить", "Обняться", "Побыть рядом молча", "Чтобы обо мне позаботились"]},
+         {"text": "Что важнее слышать от партнёра?", "options": ["Я тебя люблю", "Я тобой горжусь", "Я рядом", "Я помогу"]},
+         {"text": "Идеальный знак внимания?", "options": ["Комплимент", "Совместный вечер", "Завтрак в постель", "Неожиданный подарок"]},
+         {"text": "Как лучше мириться?", "options": ["Всё обсудить", "Сначала обняться", "Дать немного времени", "Сделать добрый жест"]},
+     ]},
+    {"title": "Быт и привычки 🏠",
+     "questions": [
+         {"text": "Порядок дома — это…", "options": ["Всегда идеально", "Уютный порядок", "Убираемся по выходным", "Главное — не искать вещи"]},
+         {"text": "Кто планирует покупки?", "options": ["Я", "Партнёр", "Вместе", "Покупаем спонтанно"]},
+         {"text": "Ужин в будний день?", "options": ["Готовим вместе", "Готовит кто свободен", "Доставка", "Каждый выбирает своё"]},
+         {"text": "Как проводить свободный вечер дома?", "options": ["Сериал", "Игры", "Разговоры", "Каждый своим делом"]},
+         {"text": "Когда лучше решать бытовые вопросы?", "options": ["Сразу", "По плану", "На выходных", "Когда станет срочно"]},
+         {"text": "Общий бюджет удобнее вести…", "options": ["Полностью вместе", "Частично вместе", "Раздельно", "Без строгого учёта"]},
+     ]},
+    {"title": "Отдых и приключения 🌍",
+     "questions": [
+         {"text": "Идеальная поездка?", "options": ["Море", "Горы", "Новый город", "Домик на природе"]},
+         {"text": "Путешествие лучше…", "options": ["Планировать заранее", "Оставить место сюрпризам", "Купить готовый тур", "Решить в последний момент"]},
+         {"text": "Темп отпуска?", "options": ["Много впечатлений", "Баланс", "Полный релакс", "Как получится"]},
+         {"text": "Лучшее свидание вне дома?", "options": ["Ресторан", "Прогулка", "Концерт", "Активное приключение"]},
+         {"text": "Что фотографировать в поездке?", "options": ["Нас двоих", "Красивые места", "Еду и детали", "Лучше проживать момент"]},
+         {"text": "Куда поехать без подготовки?", "options": ["За город", "В соседний город", "На фестиваль", "К воде"]},
+     ]},
+    {"title": "Как мы общаемся 💬",
+     "questions": [
+         {"text": "Если что-то тревожит, лучше…", "options": ["Сказать сразу", "Сначала всё обдумать", "Написать сообщением", "Дождаться спокойного момента"]},
+         {"text": "Во время спора важнее…", "options": ["Найти решение", "Быть услышанным", "Сохранить спокойствие", "Сделать паузу"]},
+         {"text": "Как часто хочется переписываться днём?", "options": ["Постоянно", "Несколько раз", "Только по делу", "Лучше поговорить вечером"]},
+         {"text": "Лучший способ поддержать?", "options": ["Выслушать", "Дать совет", "Обнять", "Помочь делом"]},
+         {"text": "Важные решения принимаем…", "options": ["После долгого обсуждения", "Быстро вместе", "Опираясь на факты", "Доверяя чувствам"]},
+         {"text": "Что делает разговор близким?", "options": ["Честность", "Юмор", "Внимание", "Общие мечты"]},
+     ]},
+    {"title": "Наше будущее ✨",
+     "questions": [
+         {"text": "Как выглядит идеальный общий дом?", "options": ["Квартира в центре", "Дом за городом", "Жильё у моря", "Главное — быть вместе"]},
+         {"text": "Что важнее в ближайшие годы?", "options": ["Карьера", "Семья", "Путешествия", "Финансовая свобода"]},
+         {"text": "Большие цели лучше…", "options": ["Подробно планировать", "Обсуждать направление", "Достигать постепенно", "Менять по ситуации"]},
+         {"text": "Идеальный ритм жизни через пять лет?", "options": ["Активный городской", "Спокойный семейный", "Много путешествий", "Свободный и гибкий"]},
+         {"text": "На что приятнее копить вместе?", "options": ["Свой дом", "Большое путешествие", "Общий проект", "Финансовую подушку"]},
+         {"text": "Какая общая мечта вдохновляет сильнее?", "options": ["Создать семью", "Увидеть мир", "Построить уютный дом", "Заниматься любимым делом"]},
      ]},
 ]
 
@@ -276,6 +321,11 @@ def init_db():
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER NOT NULL, photo TEXT NOT NULL,
         caption TEXT DEFAULT '', ts TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS couple_games(
+        pair_key TEXT NOT NULL, kind TEXT NOT NULL,
+        state TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY(pair_key, kind));
     """)
     # мягкие миграции для старых БД
     cols_j = [r["name"] for r in c.execute("PRAGMA table_info(journal)").fetchall()]
@@ -573,6 +623,11 @@ class LocationIn(BaseModel):
     user_id: int
     lat: float
     lon: float
+
+class GameActionIn(BaseModel):
+    user_id: int
+    action: str
+    value: Optional[int] = None
 
 # ---------------- pairing / профиль ----------------
 def new_code():
@@ -1358,3 +1413,141 @@ async def together_set(body: TogetherIn):
     await wsman.ping_couple(body.user_id, "pair")
     days = (datetime.date.today() - datetime.date.fromisoformat(date)).days
     return {"date": date, "days": days}
+
+# ---------------- онлайн-игры для пары ----------------
+SYNC_ROUNDS = [
+    ("Идеальный вечер вдвоём?", ["Кино дома", "Прогулка", "Ресторан", "Приключение"]),
+    ("Куда сорвёмся на выходные?", ["К морю", "В горы", "В новый город", "Останемся дома"]),
+    ("Какой сюрприз приятнее?", ["Письмо", "Подарок", "Свидание", "Завтрак в постель"]),
+    ("Наш общий супернавык?", ["Смешить", "Поддерживать", "Путешествовать", "Создавать уют"]),
+    ("Что выберем прямо сейчас?", ["Обниматься", "Гулять", "Готовить", "Играть"]),
+    ("Как выглядит идеальное утро?", ["Спать долго", "Кофе в кровать", "Спорт", "Раннее путешествие"]),
+]
+
+def game_couple(user_id: int):
+    me, partner = couple_of(user_id)
+    if not partner:
+        return me, None, str(me["id"])
+    return me, partner, f"{min(me['id'], partner['id'])}:{max(me['id'], partner['id'])}"
+
+def fresh_game(kind: str, first: int):
+    if kind == "tic_tac_toe":
+        return {"board": [""] * 9, "turn": first, "winner": None, "draw": False}
+    if kind == "sync":
+        return {"round": 0, "picks": {}, "score": 0, "revealed": False}
+    raise HTTPException(404, "unknown game")
+
+def game_response(kind: str, state: dict, version: int, me, partner):
+    base = {"kind": kind, "waiting": partner is None,
+            "partner_name": partner["name"] if partner else None, "version": version}
+    if partner is None:
+        return base
+    if kind == "tic_tac_toe":
+        return {**base, "board": state["board"], "turn": state.get("turn"),
+                "winner": state.get("winner"), "draw": bool(state.get("draw", False)),
+                "my_symbol": "X" if me["id"] == min(me["id"], partner["id"]) else "O",
+                "my_turn": state.get("turn") == me["id"],
+                "result": "win" if state.get("winner") == me["id"] else
+                          "lose" if state.get("winner") == partner["id"] else
+                          "draw" if state.get("draw") else "playing"}
+    idx = int(state.get("round", 0)) % len(SYNC_ROUNDS)
+    prompt, options = SYNC_ROUNDS[idx]
+    picks = state.get("picks", {})
+    mine, theirs = picks.get(str(me["id"])), picks.get(str(partner["id"]))
+    revealed = bool(state.get("revealed", False))
+    return {**base, "round": int(state.get("round", 0)), "prompt": prompt,
+            "options": options, "my_choice": mine, "partner_chosen": theirs is not None,
+            "partner_choice": theirs if revealed else None, "score": int(state.get("score", 0)),
+            "revealed": revealed}
+
+@app.get("/games/{kind}")
+def game_get(kind: str, user_id: int):
+    me, partner, pair_key = game_couple(user_id)
+    if not partner:
+        return game_response(kind, fresh_game(kind, me["id"]), 0, me, partner)
+    con = db()
+    row = con.execute("SELECT state,version FROM couple_games WHERE pair_key=? AND kind=?",
+                      (pair_key, kind)).fetchone()
+    if row:
+        state, version = json.loads(row["state"]), row["version"]
+    else:
+        state, version = fresh_game(kind, min(me["id"], partner["id"])), 1
+        con.execute("INSERT INTO couple_games(pair_key,kind,state,version,updated_at) VALUES(?,?,?,?,?)",
+                    (pair_key, kind, json.dumps(state), version,
+                     datetime.datetime.now().isoformat(timespec="seconds")))
+        con.commit()
+    con.close()
+    return game_response(kind, state, version, me, partner)
+
+@app.post("/games/{kind}/action")
+async def game_action(kind: str, body: GameActionIn):
+    me, partner, pair_key = game_couple(body.user_id)
+    if not partner:
+        raise HTTPException(400, "partner has not joined yet")
+    con = db()
+    con.execute("BEGIN IMMEDIATE")
+    def reject(status: int, message: str):
+        con.rollback()
+        con.close()
+        raise HTTPException(status, message)
+    row = con.execute("SELECT state,version FROM couple_games WHERE pair_key=? AND kind=?",
+                      (pair_key, kind)).fetchone()
+    state = json.loads(row["state"]) if row else fresh_game(kind, min(me["id"], partner["id"]))
+    version = row["version"] if row else 0
+    if kind == "tic_tac_toe":
+        if body.action == "reset":
+            state = fresh_game(kind, min(me["id"], partner["id"]))
+        elif body.action == "move":
+            cell = body.value
+            if cell is None or cell not in range(9):
+                reject(400, "bad cell")
+            if state.get("winner") is not None or state.get("draw"):
+                reject(409, "game finished")
+            if state.get("turn") != me["id"]:
+                reject(409, "not your turn")
+            if state["board"][cell]:
+                reject(409, "cell occupied")
+            symbol = "X" if me["id"] == min(me["id"], partner["id"]) else "O"
+            state["board"][cell] = symbol
+            wins = ((0,1,2),(3,4,5),(6,7,8),(0,3,6),(1,4,7),(2,5,8),(0,4,8),(2,4,6))
+            if any(all(state["board"][i] == symbol for i in line) for line in wins):
+                state["winner"], state["turn"] = me["id"], None
+            elif all(state["board"]):
+                state["draw"], state["turn"] = True, None
+            else:
+                state["turn"] = partner["id"]
+        else:
+            reject(400, "bad action")
+    elif kind == "sync":
+        if body.action == "choose":
+            value = body.value
+            if value is None or value not in range(len(SYNC_ROUNDS[int(state.get("round", 0)) % len(SYNC_ROUNDS)][1])):
+                reject(400, "bad choice")
+            if state.get("revealed"):
+                reject(409, "round finished")
+            picks = state.setdefault("picks", {})
+            if str(me["id"]) in picks:
+                reject(409, "already chosen")
+            picks[str(me["id"])] = value
+            if str(partner["id"]) in picks:
+                state["revealed"] = True
+                if picks[str(me["id"])] == picks[str(partner["id"])]:
+                    state["score"] = int(state.get("score", 0)) + 1
+        elif body.action == "next":
+            if not state.get("revealed"):
+                reject(409, "wait for both answers")
+            state = {"round": int(state.get("round", 0)) + 1, "picks": {},
+                     "score": int(state.get("score", 0)), "revealed": False}
+        elif body.action == "reset":
+            state = fresh_game(kind, min(me["id"], partner["id"]))
+        else:
+            reject(400, "bad action")
+    else:
+        reject(404, "unknown game")
+    version += 1
+    con.execute("INSERT OR REPLACE INTO couple_games(pair_key,kind,state,version,updated_at) VALUES(?,?,?,?,?)",
+                (pair_key, kind, json.dumps(state), version,
+                 datetime.datetime.now().isoformat(timespec="seconds")))
+    con.commit(); con.close()
+    await wsman.ping_couple(body.user_id, "game")
+    return game_response(kind, state, version, me, partner)
