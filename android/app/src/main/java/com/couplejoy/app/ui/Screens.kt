@@ -71,6 +71,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -480,10 +482,76 @@ private fun HeroPhotos(base: String, w: WidgetResp?) {
     }
 }
 
+private val HomeRose = Color(0xFFD94F7B)
+private val HomeInk = Color(0xFF552536)
+private val HomeMuted = Color(0xFF9A7180)
+private val HomeCream = Color(0xFFFFF8F7)
+
+@Composable
+private fun HomeSectionTitle(title: String, action: String? = null, onAction: () -> Unit = {}) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, color = HomeInk, fontSize = 22.sp, fontWeight = FontWeight.Bold,
+            modifier = Modifier.weight(1f))
+        if (action != null) {
+            Text(action, color = HomeRose, style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable(onClick = onAction)
+                    .padding(horizontal = 6.dp, vertical = 5.dp))
+        }
+    }
+}
+
+@Composable
+private fun HomeSpaceTile(
+    modifier: Modifier, icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String, subtitle: String, color: Color, onClick: () -> Unit
+) {
+    val source = remember { MutableInteractionSource() }
+    Column(
+        modifier.pressScale(source).height(124.dp).clip(RoundedCornerShape(24.dp))
+            .background(color).clickable(source, null, onClick = onClick).padding(16.dp),
+        verticalArrangement = Arrangement.SpaceBetween
+    ) {
+        Box(Modifier.size(38.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.72f)),
+            contentAlignment = Alignment.Center) {
+            Icon(icon, null, tint = HomeInk, modifier = Modifier.size(20.dp))
+        }
+        Column {
+            Text(title, color = HomeInk, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Text(subtitle, color = HomeMuted, style = MaterialTheme.typography.labelMedium,
+                maxLines = 1)
+        }
+    }
+}
+
+@Composable
+private fun HomeMemory(
+    modifier: Modifier, photo: String?, title: String, caption: String?, fallback: Color
+) {
+    Box(modifier.height(156.dp).clip(RoundedCornerShape(22.dp)).background(fallback)) {
+        if (!photo.isNullOrBlank()) {
+            AsyncImage(photo, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        } else {
+            Box(Modifier.size(120.dp).align(Alignment.TopEnd)
+                .background(Brush.radialGradient(listOf(Color.White.copy(alpha = 0.42f), Color.Transparent)), CircleShape))
+        }
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
+            listOf(Color.Transparent, Color.Transparent, HomeInk.copy(alpha = 0.88f))
+        )))
+        Column(Modifier.align(Alignment.BottomStart).padding(14.dp)) {
+            Text(title, color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1)
+            if (!caption.isNullOrBlank()) {
+                Text(caption, color = Color.White.copy(alpha = 0.82f),
+                    style = MaterialTheme.typography.labelMedium, maxLines = 1)
+            }
+        }
+    }
+}
+
 @Composable
 fun HomeScreen(
     vm: AppVm, profile: LocalProfile,
-    toQuizzes: () -> Unit, onWidgetSend: () -> Unit, onProfile: () -> Unit
+    toQuizzes: () -> Unit, onWidgetSend: () -> Unit, onProfile: () -> Unit,
+    onIdeas: () -> Unit = {}, onEvents: () -> Unit = {}
 ) {
     val uid = vm.userId ?: return
     val prefs = LocalContext.current.getSharedPreferences("cj", Context.MODE_PRIVATE)
@@ -491,93 +559,80 @@ fun HomeScreen(
     var me by remember { mutableStateOf<MeResp?>(null) }
     var dist by remember { mutableStateOf<DistanceResp?>(null) }
     var wphotos by remember { mutableStateOf<WidgetResp?>(null) }
-    var heroMode by remember {
-        mutableStateOf(
-            if (prefs.getString("hero_mode", "distance") == "photos") "photos" else "distance"
-        )
-    }
+    var daily by remember { mutableStateOf<DailyResp?>(null) }
     var loading by remember { mutableStateOf(true) }
     val scope = rememberCoroutineScope()
     fun reload() = vm.io({ loading = it }, { ApiClient.api.me(uid) }) {
         me = it
         vm.io({}, { ApiClient.api.distance(uid) }) { dist = it }
         vm.io({}, { ApiClient.api.widget(uid) }) { wphotos = it }
+        vm.io({}, { ApiClient.api.daily(uid) }) { daily = it }
     }
     LaunchedEffect(uid) { reload() }
-    val heroModes = listOf("distance", "photos")
-    fun setHero(i: Int) {
-        heroMode = heroModes[i.coerceIn(0, 1)]
-        prefs.edit().putString("hero_mode", heroModes[i.coerceIn(0, 1)]).apply()
+    val partnerPhoto = wphotos?.partner?.photo?.takeIf { it.isNotBlank() }?.let { base + it }
+    val myPhoto = wphotos?.mine?.photo?.takeIf { it.isNotBlank() }?.let { base + it }
+    val coverPhoto = partnerPhoto ?: myPhoto
+    val hour = remember { java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY) }
+    val greeting = when (hour) {
+        in 5..11 -> "Доброе утро"
+        in 12..17 -> "Добрый день"
+        else -> "Добрый вечер"
     }
-    ListScreen {
+
+    LazyColumn(
+        Modifier.fillMaxSize().background(HomeCream),
+        contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 10.dp, bottom = 30.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
         item {
-            Column {
-                ScreenHeader(
-                    me?.let { "Привет, ${it.name}" } ?: "Enrwine",
-                    "Ваше пространство для двоих"
-                )
-                Err(vm)
+            Row(Modifier.fillMaxWidth().height(52.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(30.dp).clip(CircleShape).background(HomeRose), Alignment.Center) {
+                        Icon(Icons.Rounded.Favorite, null, tint = Color.White, modifier = Modifier.size(16.dp))
+                    }
+                    Spacer(Modifier.width(9.dp))
+                    Text("Enrwine", color = HomeInk, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp)
+                }
+                Box(Modifier.size(42.dp).clip(CircleShape).background(Color(0xFFF4D5DB))
+                    .border(2.dp, Color.White, CircleShape).clickable(onClick = onProfile), Alignment.Center) {
+                    Avatar(me?.name ?: "E", 42.dp, photo = profile.avatar)
+                }
             }
         }
+        item { Err(vm) }
         if (loading && me == null) item { HeartLoader() }
         me?.let { m ->
             item {
                 Appear(0) {
-                    val days = m.days_together
-                    var shown by remember { mutableStateOf(0) }
-                    LaunchedEffect(days) {
-                        animate(0f, days.toFloat(), animationSpec = tween(1200)) { v, _ -> shown = v.toInt() }
-                    }
-                    SoftCard(Modifier.fillMaxWidth(), accent = true, padding = 22.dp) {
-                        Column(
-                            Modifier.fillMaxWidth(),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Row(
-                                Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.Center,
-                                verticalAlignment = Alignment.Top
-                            ) {
-                                HeroPerson(
-                                    m.name, profile.avatar, birthLine(profile.birth), false, onProfile
-                                )
-                                Icon(
-                                    Icons.Rounded.Favorite, null, tint = Color.White,
-                                    modifier = Modifier.padding(top = 24.dp, start = 6.dp, end = 6.dp).size(26.dp)
-                                )
-                                HeroPerson(
-                                    m.partner?.name ?: "Ждём…", m.partner?.avatar,
-                                    m.partner?.let { birthLine(it.birth, it.age) },
-                                    m.partner == null, onProfile
-                                )
-                            }
-                            Spacer(Modifier.height(16.dp))
+                    Box(Modifier.fillMaxWidth().height(292.dp).shadow(12.dp, RoundedCornerShape(30.dp))
+                        .clip(RoundedCornerShape(30.dp)).background(Brush.linearGradient(
+                            listOf(Color(0xFFF2B9A1), Color(0xFFE58A92), Color(0xFF8E4A61))
+                        ))) {
+                        if (coverPhoto != null) {
+                            AsyncImage(coverPhoto, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                        }
+                        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
+                            listOf(Color(0x22351620), Color.Transparent, Color(0xD9522437))
+                        )))
+                        Column(Modifier.align(Alignment.BottomStart).padding(22.dp)) {
+                            Text("$greeting, ${m.name}", color = Color.White, fontSize = 27.sp,
+                                fontWeight = FontWeight.ExtraBold)
                             Text(
-                                "$shown", color = Color.White, fontSize = 60.sp,
-                                fontWeight = FontWeight.ExtraBold, modifier = Modifier.fillMaxWidth(),
-                                textAlign = TextAlign.Center
+                                m.partner?.let { "Сегодня ещё один день вашей истории" }
+                                    ?: "Скоро здесь начнётся ваша общая история",
+                                color = Color.White.copy(alpha = 0.9f), style = MaterialTheme.typography.bodyMedium
                             )
-                            Text(
-                                "дней вместе", color = Color.White.copy(alpha = 0.9f),
-                                style = MaterialTheme.typography.titleMedium,
-                                modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center
-                            )
-                            if (m.together_since.isNotBlank()) {
-                                Text(
-                                    "с ${prettyDate(m.together_since)} • одно число на двоих",
-                                    color = Color.White.copy(alpha = 0.8f),
-                                    style = MaterialTheme.typography.labelMedium,
-                                    modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center
-                                )
-                            }
-                            Spacer(Modifier.height(12.dp))
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                                Text(
-                                    "🔥 Серия: ${m.streak}",
+                            Spacer(Modifier.height(14.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("♥  ${m.days_together} дней вместе",
                                     Modifier.clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = 0.22f))
-                                        .padding(horizontal = 14.dp, vertical = 6.dp),
-                                    color = Color.White, style = MaterialTheme.typography.labelLarge
-                                )
+                                        .padding(horizontal = 13.dp, vertical = 7.dp),
+                                    color = Color.White, style = MaterialTheme.typography.labelLarge)
+                                Spacer(Modifier.width(8.dp))
+                                Text("🔥 ${m.streak}",
+                                    Modifier.clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = 0.22f))
+                                        .padding(horizontal = 11.dp, vertical = 7.dp),
+                                    color = Color.White, style = MaterialTheme.typography.labelLarge)
                             }
                         }
                     }
@@ -585,45 +640,27 @@ fun HomeScreen(
             }
             item {
                 Appear(1) {
-                    SoftCard(Modifier.fillMaxWidth(), padding = 22.dp) {
-                        Segmented(
-                            listOf("Расстояние", "Фото"),
-                            if (heroMode == "photos") 1 else 0,
-                            { setHero(if (it == 1) 1 else 0) }
-                        )
-                        Spacer(Modifier.height(14.dp))
-                        Crossfade(
-                            targetState = heroMode == "photos",
-                            label = "hero"
-                        ) { photos ->
-                            if (photos) HeroPhotos(base, wphotos)
-                            else HeroDistance(dist)
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Color.White)
+                        .border(1.dp, Color(0xFFF2E2E5), RoundedCornerShape(24.dp)).padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Как твоё настроение?", color = HomeInk, fontWeight = FontWeight.Bold,
+                                fontSize = 17.sp)
+                            Text("Поделись с любимым человеком", color = HomeMuted,
+                                style = MaterialTheme.typography.labelMedium)
                         }
-                    }
-                }
-            }
-            item {
-                Appear(1) {
-                    SoftCard(Modifier.fillMaxWidth()) {
-                        Text("Настроение", style = MaterialTheme.typography.titleLarge)
-                        Spacer(Modifier.height(12.dp))
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            MoodBox("Вы", m.my_mood?.mood, m.my_mood?.note, Modifier.weight(1f))
-                            MoodBox("Партнёр", m.partner_mood?.mood, m.partner_mood?.note, Modifier.weight(1f))
-                        }
-                        Spacer(Modifier.height(16.dp))
-                        SectionLabel("Как вы сейчас?")
-                        Spacer(Modifier.height(8.dp))
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            listOf("😍", "🥰", "😊", "😢", "😡").forEach { e ->
-                                EmojiButton(e, m.my_mood?.mood == e) {
-                                    scope.launch {
-                                        try {
-                                            ApiClient.api.mood(MoodReq(uid, e))
-                                            reload()
-                                        } catch (ex: Exception) { vm.error = ex.message }
-                                    }
-                                }
+                        Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                            listOf("🥰", "😊", "😌").forEach { emoji ->
+                                val selected = m.my_mood?.mood == emoji
+                                Box(Modifier.size(38.dp).clip(CircleShape)
+                                    .background(if (selected) Color(0xFFFFDCE6) else Color(0xFFFFF3F4))
+                                    .border(if (selected) 1.dp else 0.dp, HomeRose, CircleShape)
+                                    .clickable {
+                                        scope.launch {
+                                            try { ApiClient.api.mood(MoodReq(uid, emoji)); reload() }
+                                            catch (ex: Exception) { vm.error = ex.message }
+                                        }
+                                    }, Alignment.Center) { Text(emoji, fontSize = 20.sp) }
                             }
                         }
                     }
@@ -631,17 +668,107 @@ fun HomeScreen(
             }
             item {
                 Appear(2) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                        ActionTile(
-                            Modifier.weight(1f), Icons.Rounded.Quiz,
-                            "Викторины", "Проверьте совместимость", toQuizzes
-                        )
-                        ActionTile(
-                            Modifier.weight(1f), Icons.Rounded.PhotoCamera,
-                            "Фото партнёру", "На его виджет", onWidgetSend
-                        )
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(26.dp))
+                        .background(Brush.horizontalGradient(listOf(Color(0xFF61283D), Color(0xFFD9587D))))
+                        .clickable(onClick = toQuizzes).padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("ЗАДАНИЕ ДНЯ", color = Color(0xFFFFCDD9), letterSpacing = 1.2.sp,
+                                style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                            Spacer(Modifier.height(7.dp))
+                            Text(daily?.question?.text ?: "Скажите друг другу, за что вы сегодня благодарны",
+                                color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp,
+                                maxLines = 3)
+                            Spacer(Modifier.height(12.dp))
+                            Text("Открыть вопрос  →", color = Color.White,
+                                style = MaterialTheme.typography.labelLarge)
+                        }
+                        Box(Modifier.size(66.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.14f)),
+                            Alignment.Center) { Text("💌", fontSize = 32.sp) }
                     }
                 }
+            }
+            item {
+                Appear(3) {
+                    Column {
+                        HomeSectionTitle("Ваши пространства")
+                        Spacer(Modifier.height(12.dp))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            HomeSpaceTile(Modifier.weight(1f), Icons.Rounded.Casino,
+                                "Случайное свидание", "Идея для двоих", Color(0xFFFFE5DE), onIdeas)
+                            HomeSpaceTile(Modifier.weight(1f), Icons.Rounded.Star,
+                                "Общие цели", "Планы и события", Color(0xFFEAE3F7), onEvents)
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            HomeSpaceTile(Modifier.weight(1f), Icons.Rounded.Favorite,
+                                "Наши моменты", "Фото друг другу", Color(0xFFF9E0E8), onWidgetSend)
+                            HomeSpaceTile(Modifier.weight(1f), Icons.Rounded.Quiz,
+                                "Вопросы", "Узнать друг друга", Color(0xFFE1EFF1), toQuizzes)
+                        }
+                    }
+                }
+            }
+            item {
+                Appear(4) {
+                    Column {
+                        HomeSectionTitle("Воспоминания", "Добавить", onWidgetSend)
+                        Spacer(Modifier.height(12.dp))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            HomeMemory(Modifier.weight(1f), partnerPhoto, "От партнёра",
+                                wphotos?.partner?.caption, Color(0xFFD6A69C))
+                            HomeMemory(Modifier.weight(1f), myPhoto, "Твоё фото",
+                                wphotos?.mine?.caption, Color(0xFFB77786))
+                        }
+                    }
+                }
+            }
+            item {
+                Appear(5) {
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(26.dp))
+                        .background(Color(0xFFFFE9EA)).clickable(onClick = onIdeas).padding(20.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(58.dp).clip(RoundedCornerShape(18.dp)).background(Color.White),
+                            Alignment.Center) { Text("🌙", fontSize = 29.sp) }
+                        Spacer(Modifier.width(15.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("Сценарий для свидания", color = HomeInk, fontWeight = FontWeight.Bold,
+                                fontSize = 17.sp)
+                            Text("Вечер без телефонов, прогулка и любимая музыка",
+                                color = HomeMuted, style = MaterialTheme.typography.bodyMedium, maxLines = 2)
+                        }
+                        Icon(Icons.Rounded.ChevronRight, null, tint = HomeRose)
+                    }
+                }
+            }
+            item {
+                Appear(6) {
+                    Column {
+                        HomeSectionTitle("Вы вдвоём")
+                        Spacer(Modifier.height(12.dp))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                            listOf(
+                                Triple("${m.days_together}", "дней вместе", Color(0xFFFFE3E9)),
+                                Triple("${m.streak}", "дней серия", Color(0xFFE9E3F4)),
+                                Triple(dist?.km?.let { formatDistance(it) } ?: "—", "между вами", Color(0xFFE2EFF0))
+                            ).forEach { stat ->
+                                Column(Modifier.weight(1f).height(94.dp).clip(RoundedCornerShape(20.dp))
+                                    .background(stat.third).padding(12.dp),
+                                    verticalArrangement = Arrangement.Center,
+                                    horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(stat.first, color = HomeInk, fontWeight = FontWeight.ExtraBold,
+                                        fontSize = if (stat.first.length > 6) 17.sp else 22.sp, maxLines = 1)
+                                    Text(stat.second, color = HomeMuted, style = MaterialTheme.typography.labelMedium,
+                                        textAlign = TextAlign.Center)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            item {
+                Text("Создавайте вашу историю каждый день  ♥", color = HomeMuted,
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), textAlign = TextAlign.Center)
             }
         }
     }

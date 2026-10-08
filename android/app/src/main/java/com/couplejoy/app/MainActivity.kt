@@ -60,6 +60,8 @@ import com.couplejoy.app.ui.AppTheme
 import com.couplejoy.app.ui.Backdrop
 import com.couplejoy.app.ui.EventsScreen
 import com.couplejoy.app.ui.HomeScreen
+import com.couplejoy.app.ui.GamesScreen
+import com.couplejoy.app.ui.OnlineGameScreen
 import com.couplejoy.app.ui.IdeasScreen
 import com.couplejoy.app.ui.LocalCj
 import com.couplejoy.app.ui.LocalProfile
@@ -204,7 +206,8 @@ fun CoupleApp(activity: ComponentActivity, vm: AppVm, prefs: SharedPreferences) 
         val nav = rememberNavController()
         val entry by nav.currentBackStackEntryAsState()
         val route = entry?.destination?.route
-        val showBar = route != null && Tabs.any { it.route == route }
+        val selectedTab = if (route == "games") "pet" else route
+        val showBar = route == "games" || (route != null && Tabs.any { it.route == route })
 
         fun goTab(r: String) = nav.navigate(r) {
             popUpTo("home") { saveState = true }
@@ -215,7 +218,7 @@ fun CoupleApp(activity: ComponentActivity, vm: AppVm, prefs: SharedPreferences) 
         Backdrop {
             Scaffold(
                 containerColor = Color.Transparent,
-                bottomBar = { if (showBar) BottomBar(route) { goTab(it) } }
+                bottomBar = { if (showBar) BottomBar(selectedTab) { goTab(it) } }
             ) { pad ->
                 NavHost(
                     nav,
@@ -242,11 +245,29 @@ fun CoupleApp(activity: ComponentActivity, vm: AppVm, prefs: SharedPreferences) 
                         HomeScreen(
                             vm, profile,
                             { goTab("qa") }, { nav.navigate("widget") },
-                            { goTab("profile") }
+                            { goTab("profile") }, { goTab("ideas") },
+                            { nav.navigate("events") }
                         )
                     }
                     composable("pet") {
-                        PetGameScreen(vm)
+                        PetGameScreen(vm, onGames = { nav.navigate("games") })
+                    }
+                    composable("games") {
+                        GamesScreen(
+                            vm,
+                            { nav.navigate("game/tic_tac_toe") },
+                            { nav.navigate("game/sync") },
+                            { goTab("ideas") }
+                        )
+                    }
+                    composable(
+                        "game/{kind}",
+                        arguments = listOf(navArgument("kind") { type = NavType.StringType })
+                    ) { e ->
+                        OnlineGameScreen(
+                            vm,
+                            e.arguments?.getString("kind") ?: "tic_tac_toe"
+                        ) { nav.popBackStack() }
                     }
                     composable("qa") {
                         QAScreen(vm, { nav.navigate("packs") }, { nav.navigate("quiz/$it") })

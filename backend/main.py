@@ -418,6 +418,18 @@ def webapp():
     return FileResponse(os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                      "web", "index.html"))
 
+@app.get("/Enrwine.apk", include_in_schema=False)
+def android_app():
+    """Текущая Android-версия Enrwine для установки на телефон."""
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    path = os.path.join(root, "Enrwine.apk")
+    if not os.path.isfile(path):
+        path = os.path.join(root, "android", "Enrwine.apk")
+    if not os.path.isfile(path):
+        raise HTTPException(404, "APK is not available")
+    return FileResponse(path, media_type="application/vnd.android.package-archive",
+                        filename="Enrwine-1.5.apk")
+
 WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
 
 @app.get("/manifest.webmanifest", include_in_schema=False)

@@ -1,0 +1,4 @@
+This scene uses Three.js r160, distributed under the MIT license.
+https://threejs.org/
+See THREE-LICENSE.txt for the full license. The scene and character models
+are procedural original geometry; no external model or texture downloads.

@@ -86,6 +86,16 @@ data class DistanceResp(val sharing: Boolean, val partner_sharing: Boolean,
 data class LinkCodeIn(val user_id: Int)
 data class LinkCode(val code: String)
 data class PremiumOut(val premium: Boolean, val until: String)
+data class GameActionReq(val user_id: Int, val action: String, val value: Int? = null)
+data class GameStateResp(
+    val kind: String, val waiting: Boolean = false, val partner_name: String? = null,
+    val version: Int = 0, val board: List<String> = emptyList(), val turn: Int? = null,
+    val winner: Int? = null, val draw: Boolean = false, val my_symbol: String = "X",
+    val my_turn: Boolean = false, val result: String = "playing",
+    val round: Int = 0, val prompt: String = "", val options: List<String> = emptyList(),
+    val my_choice: Int? = null, val partner_chosen: Boolean = false,
+    val partner_choice: Int? = null, val score: Int = 0, val revealed: Boolean = false
+)
 
 interface Api {
     @POST("auth/register") suspend fun register(@Body b: RegisterReq): AuthResp
@@ -127,6 +137,10 @@ interface Api {
     @POST("premium/code") suspend fun premiumCode(@Body b: LinkCodeIn): LinkCode
     @GET("premium") suspend fun premium(@Query("user_id") u: Int): PremiumOut
     @POST("together") suspend fun together(@Body b: TogetherIn): TogetherOut
+    @GET("games/{kind}") suspend fun game(@Path("kind") kind: String,
+                                           @Query("user_id") u: Int): GameStateResp
+    @POST("games/{kind}/action") suspend fun gameAction(@Path("kind") kind: String,
+                                                          @Body b: GameActionReq): GameStateResp
 }
 
 object ApiClient {

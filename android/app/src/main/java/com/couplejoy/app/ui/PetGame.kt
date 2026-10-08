@@ -1,8 +1,11 @@
 package com.couplejoy.app.ui
 
 import android.Manifest
+import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.Intent
 import android.content.SharedPreferences
+import android.net.Uri
 import android.media.MediaPlayer
 import android.media.MediaRecorder
 import android.media.PlaybackParams
@@ -140,7 +143,7 @@ private object PetStore {
 
 // ---------- экран ----------
 @Composable
-fun PetGameScreen(vm: AppVm, onBack: (() -> Unit)? = null) {
+fun LegacyPetGameScreen(vm: AppVm, onBack: (() -> Unit)? = null, onGames: () -> Unit = {}) {
     val ctx = LocalContext.current
     val prefs = remember {
         ctx.getSharedPreferences("cj", Context.MODE_PRIVATE)
@@ -201,6 +204,8 @@ fun PetGameScreen(vm: AppVm, onBack: (() -> Unit)? = null) {
         item {
             Column {
                 ScreenHeader("Питомец", "Вырастите малыша вместе — он ждёт заботы", onBack)
+                Spacer(Modifier.height(12.dp))
+                PrimaryButton("🎮 Игры для пары", onGames, Modifier.fillMaxWidth())
                 Err(vm)
             }
         }
@@ -306,6 +311,38 @@ fun PetGameScreen(vm: AppVm, onBack: (() -> Unit)? = null) {
             }
             item {
                 Appear(1) {
+                    SoftCard(Modifier.fillMaxWidth(), padding = 16.dp) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Питомец 3D", style = MaterialTheme.typography.titleMedium)
+                                Text(
+                                    "Трёхмерный кот: комнаты, мини-игры, наряды",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Spacer(Modifier.width(10.dp))
+                            GhostButton(
+                                "Открыть",
+                                {
+                                    try {
+                                        ctx.startActivity(
+                                            Intent(
+                                                Intent.ACTION_VIEW,
+                                                Uri.parse("https://ssssw-sladaqqq.amvera.io/pet3d.html")
+                                            )
+                                        )
+                                    } catch (e: ActivityNotFoundException) {
+                                        vm.error = "Нечем открыть ссылку — установи браузер"
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+            item {
+                Appear(2) {
                     GhostButton(
                         if (confirmReset) "Точно начать заново?" else "Начать заново",
                         {
