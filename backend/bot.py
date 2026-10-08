@@ -1,4 +1,4 @@
-"""Telegram-бот подписки CoupleJoy: привязка кода + оплата Stars.
+"""Telegram-бот подписки CoupleJoy: привязка кода + оплата.
 
 Запуск: импортируется из main.py (threading в startup) при заданном
 TELEGRAM_BOT_TOKEN. Только стандартная библиотека, зависимостей нет.
@@ -6,8 +6,8 @@ TELEGRAM_BOT_TOKEN. Только стандартная библиотека, з
 Переменные окружения:
   TELEGRAM_BOT_TOKEN — токен от @BotFather (обязательно для запуска)
   TELEGRAM_BOT_NAME  — username бота без @ (для ссылок, по умолчанию Enrwine_bot)
-  PREMIUM_STARS      — цена в Stars за период (по умолчанию 99)
   PREMIUM_DAYS       — дней Premium за оплату (по умолчанию 30)
+  PAYMENT_URL        — ссылка на оплату в банке
   COUPLE_DB          — путь к базе (как у main.py)
 """
 import datetime
@@ -21,8 +21,11 @@ API = "https://api.telegram.org/bot"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB = os.environ.get("COUPLE_DB", os.path.join(BASE_DIR, "couple.db"))
 BOT_NAME = os.environ.get("TELEGRAM_BOT_NAME", "Enrwine_bot")
-PRICE_STARS = int(os.environ.get("PREMIUM_STARS", "99"))
 PREMIUM_DAYS = int(os.environ.get("PREMIUM_DAYS", "30"))
+PAYMENT_URL = os.environ.get(
+    "PAYMENT_URL",
+    "https://www.sberbank.ru/ru/choise_bank?requisiteNumber=79333335415&bankCode=100000000111",
+)
 ADMIN_IDS = {int(x) for x in os.environ.get("ADMIN_TG_IDS", "").split(",") if x.strip().isdigit()}
 REF_BONUS = int(os.environ.get("REF_BONUS_DAYS", "7"))
 APP_URL = os.environ.get("APP_PUBLIC_URL", "https://ssssw-sladaqqq.amvera.io")
@@ -56,6 +59,27 @@ def send(token, chat, text, buttons=None):
         api(token, "sendMessage", payload)
     except Exception:
         pass
+
+
+def send_payment(token, chat, uid):
+    payload = {
+        "chat_id": chat,
+        "text": (f"💫 <b>CoupleJoy Premium на {PREMIUM_DAYS} дней</b>\n\n"
+                 "Нажми кнопку ниже для оплаты через СберБанк. "
+                 "После оплаты отправь чек администратору для активации Premium.\n\n"
+                 f"Номер аккаунта: <code>{uid}</code>"),
+        "parse_mode": "HTML",
+        "reply_markup": {
+            "inline_keyboard": [[{
+                "text": "Оплатить в СберБанке",
+                "url": PAYMENT_URL,
+            }]],
+        },
+    }
+    try:
+        api(token, "sendMessage", payload)
+    except Exception:
+        send(token, chat, f"Ссылка для оплаты:\n{PAYMENT_URL}", MENU)
 
 
 def safe(s):
@@ -109,7 +133,7 @@ def link_code(tg_id, tg_name, code):
     con.close()
     aname = safe(user["name"]) if user else str(uid)
     return True, (f"✅ <b>Готово!</b> Привязано к аккаунту «{aname}».\n"
-                 f"Нажми «Купить Premium 💫» — подписка за минуту ⭐"), uid
+                 f"Нажми «Купить Premium 💫» для оплаты"), uid
 
 
 def user_by_tg(tg_id):
@@ -333,7 +357,7 @@ def handle_message(token, m):
                   "<b>Привет! Это бот подписки CoupleJoy 💞</b>\n\n"
                   "1️⃣ Возьми код в приложении: <b>Ещё → Premium → «Показать код»</b>\n"
                   "2️⃣ Пришли код сюда (или перейди по кнопке «Открыть бота» — код подставится сам)\n"
-                  "3️⃣ Нажми «Купить Premium 💫» и оплати звёздами ⭐"),
+                  "3️⃣ Нажми «Купить Premium 💫» и перейди к оплате"),
                  MENU)
         return
     if text == "Мой статус ⭐":
@@ -376,18 +400,7 @@ def handle_message(token, m):
                  "Сначала привяжи аккаунт: пришли код из приложения (<b>Ещё → Premium</b>).",
                  MENU)
             return
-        try:
-            api(token, "sendInvoice", {
-                "chat_id": chat,
-                "title": "💫 CoupleJoy Premium",
-                "description": f"Темы вопросов, фото на виджет и новые функции на {PREMIUM_DAYS} дней",
-                "payload": f"prem:{uid}",
-                "currency": "XTR",
-                "prices": [{"label": f"Premium {PREMIUM_DAYS} дн.", "amount": PRICE_STARS}],
-            })
-        except Exception:
-            send(token, chat,
-                 "Не получилось выставить счёт 😔 Попробуй чуть позже.", MENU)
+        send_payment(token, chat, uid)
         return
     # всё остальное считаем кодом привязки
     if text:
