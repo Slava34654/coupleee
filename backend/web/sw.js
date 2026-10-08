@@ -1,5 +1,5 @@
-/* CoupleJoy service worker: офлайн-оболочка + кэш фото, API всегда из сети */
-const CACHE = "cj-v2";
+/* Enrwine service worker: офлайн-оболочка + кэш фото, API всегда из сети */
+const CACHE = "cj-v3";
 const SHELL = ["/", "/manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {

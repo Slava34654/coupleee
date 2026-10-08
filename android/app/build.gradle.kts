@@ -12,8 +12,8 @@ android {
         applicationId = "com.couplejoy.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 21
-        versionName = "1.1"
+        versionCode = 22
+        versionName = "1.2"
     }
 
     signingConfigs {
@@ -75,4 +75,13 @@ dependencies {
     implementation("androidx.glance:glance-appwidget:1.1.1")
     implementation("androidx.work:work-runtime-ktx:2.9.0")
     implementation("io.coil-kt:coil-compose:2.6.0")
+}
+
+tasks.register("exportDebugApk") {
+    doNotTrackState("Exports a distributable APK outside the build directory")
+    dependsOn("assembleDebug")
+    doLast {
+        layout.buildDirectory.file("outputs/apk/debug/app-debug.apk").get().asFile
+            .copyTo(rootProject.file("Enrwine.apk"), overwrite = true)
+    }
 }

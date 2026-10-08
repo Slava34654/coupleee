@@ -1,4 +1,4 @@
-"""CoupleJoy — десктоп-демо (Tkinter, тёмная тема) поверх Python-бэкенда.
+"""Enrwine — десктоп-демо (Tkinter, тёмная тема) поверх Python-бэкенда.
 Требует запущенный backend: uvicorn main:app --port 8000 (каталог backend/).
 """
 import tkinter as tk
@@ -35,7 +35,7 @@ def api(method, path, body=None, params=None):
 class App:
     def __init__(self, root):
         self.root = root
-        root.title("💑 CoupleJoy — демо")
+        root.title("💑 Enrwine — демо")
         root.geometry("560x680")
         root.configure(bg=BG)
         self.uid = None
@@ -62,7 +62,7 @@ class App:
 
         head = tk.Frame(root, bg=BG)
         head.pack(fill="x", padx=12, pady=(10, 0))
-        tk.Label(head, text="💑  CoupleJoy", bg=BG, fg=PINK,
+        tk.Label(head, text="💑  Enrwine", bg=BG, fg=PINK,
                  font=("", 22, "bold")).pack(side="left")
         tk.Label(head, text="для двоих", bg=BG, fg=MUT,
                  font=("", 11, "italic")).pack(side="left", padx=8, pady=(8, 0))

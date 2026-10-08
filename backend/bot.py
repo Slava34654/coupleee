@@ -1,4 +1,4 @@
-"""Telegram-бот подписки CoupleJoy: привязка кода + оплата.
+"""Telegram-бот подписки Enrwine: привязка кода + оплата.
 
 Запуск: импортируется из main.py (threading в startup) при заданном
 TELEGRAM_BOT_TOKEN. Только стандартная библиотека, зависимостей нет.
@@ -64,7 +64,7 @@ def send(token, chat, text, buttons=None):
 def send_payment(token, chat, uid):
     payload = {
         "chat_id": chat,
-        "text": (f"💫 <b>CoupleJoy Premium на {PREMIUM_DAYS} дней</b>\n\n"
+        "text": (f"💫 <b>Enrwine Premium на {PREMIUM_DAYS} дней</b>\n\n"
                  "Нажми кнопку ниже для оплаты через СберБанк. "
                  "После оплаты отправь чек администратору для активации Premium.\n\n"
                  f"Номер аккаунта: <code>{uid}</code>"),
@@ -90,7 +90,7 @@ def send_welcome(token, chat):
     try:
         api(token, "sendPhoto", {
             "chat_id": chat, "photo": ICON_URL,
-            "caption": "<b>💞 CoupleJoy Premium</b>\nПодписка для двоих — темы вопросов, "
+            "caption": "<b>💞 Enrwine Premium</b>\nПодписка для двоих — темы вопросов, "
                        "фото на виджет и новые функции.",
             "parse_mode": "HTML"})
     except Exception:
@@ -354,7 +354,7 @@ def handle_message(token, m):
             send(token, chat,
                  ("✅ <b>Ты уже привязан.</b> Нажми «Купить Premium 💫» — и всё твоё."
                   if uid else
-                  "<b>Привет! Это бот подписки CoupleJoy 💞</b>\n\n"
+                  "<b>Привет! Это бот подписки Enrwine 💞</b>\n\n"
                   "1️⃣ Возьми код в приложении: <b>Ещё → Premium → «Показать код»</b>\n"
                   "2️⃣ Пришли код сюда (или перейди по кнопке «Открыть бота» — код подставится сам)\n"
                   "3️⃣ Нажми «Купить Premium 💫» и перейди к оплате"),

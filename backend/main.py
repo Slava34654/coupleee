@@ -1,4 +1,4 @@
-"""CoupleJoy-аналог: Python-бэкенд (FastAPI + SQLite).
+"""Enrwine: Python-бэкенд (FastAPI + SQLite).
 
 Запуск:
     pip install -r requirements.txt
@@ -25,7 +25,7 @@ import string
 DB = os.environ.get("COUPLE_DB", os.path.join(os.path.dirname(os.path.abspath(__file__)), "couple.db"))
 PHOTO_DIR = os.environ.get("PHOTO_DIR", os.path.join(os.path.dirname(os.path.abspath(__file__)), "photos"))
 
-app = FastAPI(title="CoupleJoy Analog API", version="1.0")
+app = FastAPI(title="Enrwine API", version="1.0")
 
 # Токен текущего HTTP-запроса (заголовок X-Auth-Token). WebSocket идёт мимо
 # middleware — там токен передаётся явным query-параметром.

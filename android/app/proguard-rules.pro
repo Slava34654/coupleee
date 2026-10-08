@@ -1,4 +1,4 @@
-# CoupleJoy: правила R8 для релиза.
+# Enrwine: правила R8 для релиза.
 # Модели API читаются через Gson рефлексией — не трогать.
 -keep class com.couplejoy.app.api.** { *; }
 # WorkManager создаёт воркеры рефлексией.

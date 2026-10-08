@@ -60,7 +60,7 @@ class CoupleWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val uid = prefs.getInt("uid", -1)
-        var title = "💑 CoupleJoy"
+        var title = "💑 Enrwine"
         var sub = "Откройте приложение"
         var photoFile: File? = null
         if (uid > 0) {

@@ -192,7 +192,7 @@ fun PairScreen(vm: AppVm, onDone: (Int, LocalProfile, String) -> Unit) {
         ) {
             Icon(Icons.Rounded.Favorite, null, tint = Color.White, modifier = Modifier.size(52.dp))
         }
-        Text("CoupleJoy", style = MaterialTheme.typography.displaySmall.copy(brush = x.brand()))
+        Text("Enrwine", style = MaterialTheme.typography.displaySmall.copy(brush = x.brand()))
         Text(
             if (account == null) {
                 "Сначала войдите или создайте аккаунт. Код подтверждения не нужен."
@@ -513,7 +513,7 @@ fun HomeScreen(
         item {
             Column {
                 ScreenHeader(
-                    me?.let { "Привет, ${it.name}" } ?: "CoupleJoy",
+                    me?.let { "Привет, ${it.name}" } ?: "Enrwine",
                     "Ваше пространство для двоих"
                 )
                 Err(vm)
@@ -1382,7 +1382,7 @@ fun SettingsScreen(
                     Text("Виджет на рабочий стол", style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        "Долгое нажатие по рабочему столу → Виджеты → CoupleJoy. Обновляется сам каждые 15 минут, показывает дни, настроение и фото партнёра.",
+                        "Долгое нажатие по рабочему столу → Виджеты → Enrwine. Обновляется сам каждые 15 минут, показывает дни, настроение и фото партнёра.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

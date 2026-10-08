@@ -274,7 +274,7 @@ assert next(x for x in lst if x["id"] == jid3)["photo"] == url
 print("photos OK:", url)
 
 r = c.get("/manifest.webmanifest")
-assert r.status_code == 200 and r.json()["short_name"] == "CoupleJoy", r.status_code
+assert r.status_code == 200 and r.json()["short_name"] == "Enrwine", r.status_code
 r = c.get("/sw.js")
 assert r.status_code == 200 and "service worker" in r.text.lower()
 r = c.get("/icons/icon-192.png")
