@@ -12,8 +12,8 @@ android {
         applicationId = "com.couplejoy.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 27
-        versionName = "1.7"
+        versionCode = 28
+        versionName = "1.8"
     }
 
     signingConfigs {

@@ -551,7 +551,7 @@ private fun HomeMemory(
 }
 
 @Composable
-fun HomeScreen(
+fun LegacyHomeScreen(
     vm: AppVm, profile: LocalProfile,
     toQuizzes: () -> Unit, onWidgetSend: () -> Unit, onProfile: () -> Unit,
     onIdeas: () -> Unit = {}, onEvents: () -> Unit = {}
@@ -863,11 +863,6 @@ fun ProfileScreen(
                         style = MaterialTheme.typography.titleMedium, color = x.accentA
                     )
                     Spacer(Modifier.height(4.dp))
-                    Text(
-                        "Дата общая: поменял один — изменилось у обоих. Число растёт само каждый день. Фото и дата рождения хранятся на этом устройстве; партнёр видит те, что указаны при входе.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
                 }
             }
         }

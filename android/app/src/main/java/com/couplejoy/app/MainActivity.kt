@@ -20,11 +20,11 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Home
-import androidx.compose.material.icons.rounded.Lightbulb
+import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Person
-import androidx.compose.material.icons.rounded.QuestionAnswer
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -131,9 +131,9 @@ private data class Tab(val route: String, val label: String, val icon: ImageVect
 
 private val Tabs = listOf(
     Tab("home", "Главная", Icons.Rounded.Home),
-    Tab("pet", "Питомец", Icons.Rounded.Favorite),
-    Tab("qa", "Вопросы", Icons.Rounded.QuestionAnswer),
-    Tab("ideas", "Идеи", Icons.Rounded.Lightbulb),
+    Tab("pet", "Мы", Icons.Rounded.Favorite),
+    Tab("ideas", "Идеи", Icons.Rounded.Explore),
+    Tab("qa", "Дневник", Icons.AutoMirrored.Rounded.MenuBook),
     Tab("profile", "Профиль", Icons.Rounded.Person)
 )
 
@@ -249,7 +249,7 @@ fun CoupleApp(activity: ComponentActivity, vm: AppVm, prefs: SharedPreferences) 
                             vm, profile,
                             { goTab("qa") }, { nav.navigate("widget") },
                             { goTab("profile") }, { goTab("ideas") },
-                            { nav.navigate("events") }
+                            { nav.navigate("events") }, { nav.navigate("settings") }
                         )
                     }
                     composable("pet") {
