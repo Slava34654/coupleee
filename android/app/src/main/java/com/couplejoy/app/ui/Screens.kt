@@ -88,6 +88,7 @@ import coil.compose.AsyncImage
 import com.couplejoy.app.AppVm
 import com.couplejoy.app.api.AnswerReq
 import com.couplejoy.app.api.ApiClient
+import com.couplejoy.app.api.AuthResp
 import com.couplejoy.app.api.DailyResp
 import com.couplejoy.app.api.EventReq
 import com.couplejoy.app.api.EventResp
@@ -102,6 +103,7 @@ import com.couplejoy.app.api.DistanceResp
 import com.couplejoy.app.api.PackAnsReq
 import com.couplejoy.app.api.PackResp
 import com.couplejoy.app.api.PackShort
+import com.couplejoy.app.api.PairSetupReq
 import com.couplejoy.app.api.WidgetResp
 import com.couplejoy.app.location.formatAgo
 import com.couplejoy.app.location.formatDistance
@@ -154,14 +156,13 @@ fun PairScreen(vm: AppVm, onDone: (Int, LocalProfile, String) -> Unit) {
     val ctx = LocalContext.current
     var authMode by remember { mutableStateOf(0) }
     var pairMode by remember { mutableStateOf(0) }
+    var account by remember { mutableStateOf<AuthResp?>(null) }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var passwordAgain by remember { mutableStateOf("") }
     var name by remember { mutableStateOf("") }
     var code by remember { mutableStateOf("") }
     var myCode by remember { mutableStateOf<String?>(null) }
-    var myUid by remember { mutableStateOf<Int?>(null) }
-    var myToken by remember { mutableStateOf("") }
     var myProfile by remember { mutableStateOf(LocalProfile()) }
     var birth by remember { mutableStateOf("") }
     var since by remember { mutableStateOf("") }
@@ -172,14 +173,14 @@ fun PairScreen(vm: AppVm, onDone: (Int, LocalProfile, String) -> Unit) {
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) {
         if (it != null) avatarUri = it
     }
-
     val pulse = rememberInfiniteTransition(label = "logo")
     val ps by pulse.animateFloat(
         1f, 1.08f, infiniteRepeatable(tween(1100), RepeatMode.Reverse), label = "logos"
     )
 
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 28.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp, vertical = 28.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
@@ -191,69 +192,95 @@ fun PairScreen(vm: AppVm, onDone: (Int, LocalProfile, String) -> Unit) {
         ) {
             Icon(Icons.Rounded.Favorite, null, tint = Color.White, modifier = Modifier.size(52.dp))
         }
+        Text("CoupleJoy", style = MaterialTheme.typography.displaySmall.copy(brush = x.brand()))
         Text(
-            "CoupleJoy",
-            style = MaterialTheme.typography.displaySmall.copy(brush = x.brand())
-        )
-        Text(
-            "Пространство для двоих: настроение, вопросы, свидания и общий журнал.",
+            if (account == null) {
+                "Сначала войдите или создайте аккаунт. Код подтверждения не нужен."
+            } else {
+                "Аккаунт готов. Теперь создайте пару или присоединитесь к партнёру."
+            },
             textAlign = TextAlign.Center,
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(Modifier.height(4.dp))
         SoftCard(Modifier.fillMaxWidth()) {
-            Segmented(listOf("Войти", "Регистрация"), authMode) {
-                authMode = it
-                vm.error = null
-            }
-            Spacer(Modifier.height(16.dp))
-            CjField(
-                email, { email = it }, "Электронная почта",
-                keyboard = KeyboardOptions(keyboardType = KeyboardType.Email)
-            )
-            Spacer(Modifier.height(12.dp))
-            CjField(
-                password, { password = it }, "Пароль",
-                keyboard = KeyboardOptions(keyboardType = KeyboardType.Password),
-                visualTransformation = PasswordVisualTransformation()
-            )
-            Spacer(Modifier.height(12.dp))
-            if (authMode == 0) {
-                PrimaryButton(
-                    if (busy) "Входим…" else "Войти",
-                    {
-                        scope.launch {
-                            busy = true
-                            vm.error = null
-                            try {
-                                val r = ApiClient.api.login(LoginReq(email.trim(), password))
-                                onDone(
-                                    r.user_id,
-                                    LocalProfile(r.avatar, r.birth, r.together_since),
-                                    r.token
-                                )
-                            } catch (e: Exception) {
-                                vm.error = if (e is retrofit2.HttpException && e.code() == 401) {
-                                    "Неверная почта или пароль"
-                                } else e.message
-                            }
-                            busy = false
-                        }
-                    },
-                    Modifier.fillMaxWidth(),
-                    enabled = email.isNotBlank() && password.isNotBlank() && !busy
-                )
-            } else {
+            val currentAccount = account
+            if (currentAccount == null) {
+                Segmented(listOf("Войти", "Регистрация"), authMode) {
+                    authMode = it
+                    vm.error = null
+                }
+                Spacer(Modifier.height(16.dp))
                 CjField(
-                    passwordAgain, { passwordAgain = it }, "Повторите пароль",
+                    email, { email = it }, "Электронная почта",
+                    keyboard = KeyboardOptions(keyboardType = KeyboardType.Email)
+                )
+                Spacer(Modifier.height(12.dp))
+                CjField(
+                    password, { password = it }, "Пароль",
                     keyboard = KeyboardOptions(keyboardType = KeyboardType.Password),
                     visualTransformation = PasswordVisualTransformation()
                 )
+                if (authMode == 1) {
+                    Spacer(Modifier.height(12.dp))
+                    CjField(
+                        passwordAgain, { passwordAgain = it }, "Повторите пароль",
+                        keyboard = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        visualTransformation = PasswordVisualTransformation()
+                    )
+                }
                 Spacer(Modifier.height(16.dp))
-                Segmented(listOf("Создать пару", "Ввести код"), pairMode) { pairMode = it }
+                PrimaryButton(
+                    if (busy) "Подождите…" else if (authMode == 0) "Войти" else "Зарегистрироваться",
+                    {
+                        if (authMode == 1 && password != passwordAgain) {
+                            vm.error = "Пароли не совпадают"
+                        } else {
+                            scope.launch {
+                                busy = true
+                                vm.error = null
+                                try {
+                                    val r = if (authMode == 0) {
+                                        ApiClient.api.login(LoginReq(email.trim(), password))
+                                    } else {
+                                        ApiClient.api.register(RegisterReq(email.trim(), password))
+                                    }
+                                    ApiClient.authToken = r.token
+                                    if (r.pair_ready) {
+                                        onDone(
+                                            r.user_id,
+                                            LocalProfile(r.avatar, r.birth, r.together_since),
+                                            r.token
+                                        )
+                                    } else {
+                                        account = r
+                                    }
+                                } catch (e: Exception) {
+                                    vm.error = if (e is retrofit2.HttpException) {
+                                        when (e.code()) {
+                                            401 -> "Неверная почта или пароль"
+                                            409 -> "Эта почта уже зарегистрирована"
+                                            else -> e.message
+                                        }
+                                    } else e.message
+                                }
+                                busy = false
+                            }
+                        }
+                    },
+                    Modifier.fillMaxWidth(),
+                    enabled = email.isNotBlank() && password.length >= 6 &&
+                        (authMode == 0 || passwordAgain.isNotBlank()) && !busy
+                )
+            } else {
+                Text("Настройка пары", style = MaterialTheme.typography.titleLarge)
+                Spacer(Modifier.height(12.dp))
+                Segmented(listOf("Создать пару", "Ввести код"), pairMode) {
+                    pairMode = it
+                    vm.error = null
+                }
                 Spacer(Modifier.height(16.dp))
-
                 Box(
                     Modifier.align(Alignment.CenterHorizontally).size(104.dp).clip(CircleShape)
                         .background(x.accentA.copy(alpha = 0.10f), CircleShape)
@@ -280,62 +307,53 @@ fun PairScreen(vm: AppVm, onDone: (Int, LocalProfile, String) -> Unit) {
                     DateField("Вместе с…", since, { since = it })
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        "После регистрации получите код, который можно отправить партнёру.",
+                        "После создания получите код, который можно отправить партнёру.",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 } else {
                     CjField(
                         code, { code = it.uppercase() }, "Код партнёра",
-                        keyboard = KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Characters)
+                        keyboard = KeyboardOptions(
+                            capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Characters
+                        )
                     )
                 }
                 Spacer(Modifier.height(14.dp))
                 PrimaryButton(
-                    if (busy) "Регистрируем…" else "Зарегистрироваться",
+                    if (busy) "Сохраняем…" else if (pairMode == 0) "Создать пару" else "Присоединиться",
                     {
-                        if (password != passwordAgain) {
-                            vm.error = "Пароли не совпадают"
-                        } else {
-                            scope.launch {
-                                busy = true
-                                vm.error = null
-                                try {
-                                    val av = avatarUri?.let { uploadImage(ctx, it) } ?: ""
-                                    val r = ApiClient.api.register(
-                                        RegisterReq(
-                                            email.trim(), password, name.trim(), birth, av,
-                                            if (pairMode == 0) since else "",
-                                            if (pairMode == 1) code else ""
-                                        )
+                        scope.launch {
+                            busy = true
+                            vm.error = null
+                            try {
+                                val av = avatarUri?.let { uploadImage(ctx, it) } ?: ""
+                                val r = ApiClient.api.pairSetup(
+                                    PairSetupReq(
+                                        currentAccount.user_id, name.trim(), birth, av,
+                                        if (pairMode == 0) since else "",
+                                        if (pairMode == 1) code else ""
                                     )
-                                    val profile = LocalProfile(r.avatar, r.birth, r.together_since)
-                                    if (pairMode == 0) {
-                                        myCode = r.pair_code
-                                        myUid = r.user_id
-                                        myToken = r.token
-                                        myProfile = profile
-                                    } else {
-                                        onDone(r.user_id, profile, r.token)
-                                    }
-                                } catch (e: Exception) {
-                                    vm.error = if (e is retrofit2.HttpException) {
-                                        when (e.code()) {
-                                            409 -> "Эта почта уже зарегистрирована"
-                                            404 -> "Код партнёра не найден"
-                                            else -> e.message
-                                        }
-                                    } else e.message
+                                )
+                                val profile = LocalProfile(r.avatar, r.birth, r.together_since)
+                                if (pairMode == 0) {
+                                    myCode = r.pair_code
+                                    myProfile = profile
+                                    account = r
+                                } else {
+                                    onDone(r.user_id, profile, r.token)
                                 }
-                                busy = false
+                            } catch (e: Exception) {
+                                vm.error = if (e is retrofit2.HttpException && e.code() == 404) {
+                                    "Код партнёра не найден"
+                                } else e.message
                             }
+                            busy = false
                         }
                     },
                     Modifier.fillMaxWidth(),
-                    enabled = email.isNotBlank() && password.length >= 6 &&
-                        passwordAgain.isNotBlank() && name.isNotBlank() &&
-                        (pairMode == 1 || since.isNotBlank()) &&
-                        (pairMode == 0 || code.isNotBlank()) && !busy && myUid == null
+                    enabled = name.isNotBlank() && (pairMode == 1 || since.isNotBlank()) &&
+                        (pairMode == 0 || code.isNotBlank()) && !busy && myCode == null
                 )
                 myCode?.let { c ->
                     Spacer(Modifier.height(16.dp))
@@ -351,7 +369,7 @@ fun PairScreen(vm: AppVm, onDone: (Int, LocalProfile, String) -> Unit) {
                         Text(c, fontSize = 34.sp, fontWeight = FontWeight.ExtraBold,
                             letterSpacing = 6.sp, color = x.accentA)
                         Text(
-                            "Регистрация завершена. Отправьте этот код партнёру.",
+                            "Пара создана. Отправьте этот код партнёру.",
                             textAlign = TextAlign.Center,
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -360,8 +378,8 @@ fun PairScreen(vm: AppVm, onDone: (Int, LocalProfile, String) -> Unit) {
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             GhostButton("Копировать", { clipboard.setText(AnnotatedString(c)) }, Modifier.weight(1f))
                             PrimaryButton(
-                                "Войти",
-                                { myUid?.let { onDone(it, myProfile, myToken) } },
+                                "Продолжить",
+                                { onDone(currentAccount.user_id, myProfile, currentAccount.token) },
                                 Modifier.weight(1f)
                             )
                         }

@@ -350,6 +350,8 @@ def init_db():
         c.execute("ALTER TABLE users ADD COLUMN email TEXT")
     if "password_hash" not in cols_u:
         c.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
+    if "pair_ready" not in cols_u:
+        c.execute("ALTER TABLE users ADD COLUMN pair_ready INTEGER NOT NULL DEFAULT 1")
     c.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_email_uq "
               "ON users(email) WHERE email IS NOT NULL AND email != ''")
     for r in c.execute("SELECT id FROM users WHERE token IS NULL OR token=''").fetchall():
@@ -580,6 +582,9 @@ class JoinIn(BaseModel):
 class AuthRegisterIn(BaseModel):
     email: str
     password: str
+
+class PairSetupIn(BaseModel):
+    user_id: int
     name: str
     birth: str = ""
     avatar: str = ""
@@ -689,6 +694,7 @@ def auth_response(user, token: str):
         "name": user["name"], "birth": user["birth"] or "",
         "avatar": user["avatar"] or "",
         "together_since": user["together_since"],
+        "pair_ready": bool(user["pair_ready"]),
     }
 
 def check_birth(birth: str) -> str:
@@ -721,37 +727,17 @@ def check_since(since: str) -> str:
 async def auth_register(body: AuthRegisterIn):
     email = normalize_email(body.email)
     password_hash = hash_password(body.password)
-    name = body.name.strip()
-    if not name or len(name) > 80:
-        raise HTTPException(400, "invalid name")
-    if body.birth:
-        check_birth(body.birth)
 
     con = db()
     try:
         if con.execute("SELECT 1 FROM users WHERE email=?", (email,)).fetchone():
             raise HTTPException(409, "email already registered")
-        partner = None
-        if body.partner_code.strip():
-            partner = con.execute("SELECT * FROM users WHERE pair_code=?",
-                                  (body.partner_code.strip().upper(),)).fetchone()
-            if not partner:
-                raise HTTPException(404, "code not found")
-            if partner["partner_id"]:
-                raise HTTPException(400, "code already used")
-            since = partner["together_since"]
-        else:
-            since = check_since(body.since) if body.since else today()
-
         token = new_token()
         cur = con.execute(
-            "INSERT INTO users(name,pair_code,partner_id,together_since,birth,avatar,token,email,password_hash) "
-            "VALUES(?,?,?,?,?,?,?,?,?)",
-            (name, new_code(), partner["id"] if partner else None, since,
-             body.birth, body.avatar, token, email, password_hash))
+            "INSERT INTO users(name,pair_code,together_since,birth,avatar,token,email,password_hash,pair_ready) "
+            "VALUES(?,?,?,?,?,?,?,?,0)",
+            (email.split("@", 1)[0], new_code(), today(), "", "", token, email, password_hash))
         uid = cur.lastrowid
-        if partner:
-            con.execute("UPDATE users SET partner_id=? WHERE id=?", (uid, partner["id"]))
         con.commit()
         user = con.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
     except sqlite3.IntegrityError:
@@ -764,8 +750,6 @@ async def auth_register(body: AuthRegisterIn):
         con.close()
 
     _request_token.set(token)
-    if partner:
-        await wsman.ping_couple(uid, "pair")
     return auth_response(user, token)
 
 @app.post("/auth/login")
@@ -785,6 +769,47 @@ def auth_login(body: AuthLoginIn):
     con.close()
     _request_token.set(token)
     return auth_response(user, token)
+
+@app.post("/pair/setup")
+async def pair_setup(body: PairSetupIn):
+    me, _ = couple_of(body.user_id)
+    name = body.name.strip()
+    if not name or len(name) > 80:
+        raise HTTPException(400, "invalid name")
+    if body.birth:
+        check_birth(body.birth)
+
+    con = db()
+    partner = None
+    try:
+        if body.partner_code.strip():
+            partner = con.execute("SELECT * FROM users WHERE pair_code=? AND id!=?",
+                                  (body.partner_code.strip().upper(), body.user_id)).fetchone()
+            if not partner or not partner["pair_ready"]:
+                raise HTTPException(404, "code not found")
+            if partner["partner_id"]:
+                raise HTTPException(400, "code already used")
+            since = partner["together_since"]
+        else:
+            since = check_since(body.since) if body.since else today()
+
+        con.execute(
+            "UPDATE users SET name=?,birth=?,avatar=?,together_since=?,partner_id=?,pair_ready=1 WHERE id=?",
+            (name, body.birth, body.avatar, since,
+             partner["id"] if partner else None, body.user_id))
+        if partner:
+            con.execute("UPDATE users SET partner_id=? WHERE id=?", (body.user_id, partner["id"]))
+        con.commit()
+        user = con.execute("SELECT * FROM users WHERE id=?", (body.user_id,)).fetchone()
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+    if partner:
+        await wsman.ping_couple(body.user_id, "pair")
+    return auth_response(user, me["token"])
 
 @app.post("/pair")
 def pair_create(body: PairIn):
