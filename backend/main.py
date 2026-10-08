@@ -428,7 +428,7 @@ def android_app():
     if not os.path.isfile(path):
         raise HTTPException(404, "APK is not available")
     return FileResponse(path, media_type="application/vnd.android.package-archive",
-                        filename="Enrwine-1.5.apk")
+                        filename="Enrwine-1.6.apk")
 
 WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
 
@@ -1070,18 +1070,23 @@ def widget_latest(user_id: int):
 
 # ---------------- смена / удаление пары ----------------
 @app.delete("/pair")
-def pair_leave(user_id: int):
-    """Покинуть пару: оба партнёра становятся одиночками, данные остаются."""
+async def pair_leave(user_id: int):
+    """Покинуть пару, сохранив аккаунты и их действующие сессии."""
     me, partner = couple_of(user_id)
     con = db()
-    con.execute("UPDATE users SET partner_id=NULL WHERE id=?", (user_id,))
+    con.execute("UPDATE users SET partner_id=NULL,pair_ready=0 WHERE id=?", (user_id,))
     con.execute("DELETE FROM locations WHERE user_id=?", (user_id,))
     if partner:
-        con.execute("UPDATE users SET partner_id=NULL WHERE id=?", (partner["id"],))
+        con.execute("UPDATE users SET partner_id=NULL,pair_ready=0 WHERE id=?", (partner["id"],))
         con.execute("DELETE FROM locations WHERE user_id=?", (partner["id"],))
     con.commit()
+    user = con.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
     con.close()
-    return {"ok": True}
+    msg = {"type": "reload", "what": "pair"}
+    await wsman.send(user_id, msg)
+    if partner:
+        await wsman.send(partner["id"], msg)
+    return auth_response(user, me["token"])
 
 # ---------------- обнимашки (tap-to-feel) ----------------
 @app.post("/tap")

@@ -101,6 +101,7 @@ interface Api {
     @POST("auth/register") suspend fun register(@Body b: RegisterReq): AuthResp
     @POST("auth/login") suspend fun login(@Body b: LoginReq): AuthResp
     @POST("pair/setup") suspend fun pairSetup(@Body b: PairSetupReq): AuthResp
+    @DELETE("pair") suspend fun pairLeave(@Query("user_id") u: Int): AuthResp
     @POST("pair") suspend fun pair(@Body b: PairReq): PairResp
     @POST("pair/join") suspend fun join(@Body b: JoinReq): PairResp
     @GET("me") suspend fun me(@Query("user_id") u: Int): MeResp

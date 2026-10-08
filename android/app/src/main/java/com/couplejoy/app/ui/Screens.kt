@@ -153,21 +153,24 @@ private fun ActionTile(
 
 // ---------- вход / создание пары ----------
 @Composable
-fun PairScreen(vm: AppVm, onDone: (Int, LocalProfile, String) -> Unit) {
+fun PairScreen(
+    vm: AppVm, initialAccount: AuthResp? = null,
+    onDone: (Int, LocalProfile, String) -> Unit
+) {
     val x = LocalCj.current
     val ctx = LocalContext.current
     var authMode by remember { mutableStateOf(0) }
     var pairMode by remember { mutableStateOf(0) }
-    var account by remember { mutableStateOf<AuthResp?>(null) }
+    var account by remember(initialAccount) { mutableStateOf(initialAccount) }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var passwordAgain by remember { mutableStateOf("") }
-    var name by remember { mutableStateOf("") }
+    var name by remember(initialAccount) { mutableStateOf(initialAccount?.name.orEmpty()) }
     var code by remember { mutableStateOf("") }
     var myCode by remember { mutableStateOf<String?>(null) }
     var myProfile by remember { mutableStateOf(LocalProfile()) }
-    var birth by remember { mutableStateOf("") }
-    var since by remember { mutableStateOf("") }
+    var birth by remember(initialAccount) { mutableStateOf(initialAccount?.birth.orEmpty()) }
+    var since by remember(initialAccount) { mutableStateOf(initialAccount?.together_since.orEmpty()) }
     var avatarUri by remember { mutableStateOf<Uri?>(null) }
     var busy by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -329,7 +332,7 @@ fun PairScreen(vm: AppVm, onDone: (Int, LocalProfile, String) -> Unit) {
                             busy = true
                             vm.error = null
                             try {
-                                val av = avatarUri?.let { uploadImage(ctx, it) } ?: ""
+                                val av = avatarUri?.let { uploadImage(ctx, it) } ?: currentAccount.avatar
                                 val r = ApiClient.api.pairSetup(
                                     PairSetupReq(
                                         currentAccount.user_id, name.trim(), birth, av,
@@ -1434,7 +1437,8 @@ fun IdeasScreen(vm: AppVm) {
 fun SettingsScreen(
     vm: AppVm, baseUrl: String, dark: Boolean,
     onDark: (Boolean) -> Unit,
-    onSaveUrl: (String) -> Unit, onLogout: () -> Unit, onBack: () -> Unit
+    onSaveUrl: (String) -> Unit, onLeavePair: () -> Unit,
+    onLogout: () -> Unit, onBack: () -> Unit
 ) {
     val x = LocalCj.current
     var url by remember(baseUrl) { mutableStateOf(baseUrl) }
@@ -1519,7 +1523,15 @@ fun SettingsScreen(
         item {
             Appear(4) {
                 GhostButton(
-                    "Выйти из пары на этом устройстве", onLogout,
+                    "Выйти из пары", onLeavePair,
+                    Modifier.fillMaxWidth(), icon = Icons.AutoMirrored.Rounded.Logout
+                )
+            }
+        }
+        item {
+            Appear(5) {
+                GhostButton(
+                    "Выйти из аккаунта", onLogout,
                     Modifier.fillMaxWidth(), icon = Icons.AutoMirrored.Rounded.Logout
                 )
             }

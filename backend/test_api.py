@@ -308,8 +308,8 @@ assert c0.get("/journal", params={"user_id": A}).status_code == 401
 print("auth OK: 401 without token, чужой токен отклонён")
 
 r = c.delete("/pair", params={"user_id": A})
-assert r.json() == {"ok": True}
-assert r.json() == {"ok": True}
+assert r.status_code == 200 and r.json()["user_id"] == A
+assert r.json()["token"] == TOK[A] and not r.json()["pair_ready"]
 me = c.get("/me", params={"user_id": A}).json()
 assert me["partner"] is None
 me = c.get("/me", params={"user_id": B}).json()

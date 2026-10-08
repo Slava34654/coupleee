@@ -56,6 +56,7 @@ import androidx.navigation.navArgument
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.couplejoy.app.api.ApiClient
+import com.couplejoy.app.api.AuthResp
 import com.couplejoy.app.ui.AppTheme
 import com.couplejoy.app.ui.Backdrop
 import com.couplejoy.app.ui.EventsScreen
@@ -169,6 +170,7 @@ fun CoupleApp(activity: ComponentActivity, vm: AppVm, prefs: SharedPreferences) 
     val ctx = LocalContext.current
     var dark by remember { mutableStateOf(prefs.getBoolean("dark", true)) }
     var profile by remember { mutableStateOf(ProfileStore.load(prefs)) }
+    var pairingAccount by remember { mutableStateOf<AuthResp?>(null) }
     var baseUrl by remember {
         mutableStateOf(prefs.getString("base_url", ApiClient.DEFAULT_URL)!!)
     }
@@ -230,9 +232,10 @@ fun CoupleApp(activity: ComponentActivity, vm: AppVm, prefs: SharedPreferences) 
                     popExitTransition = { fadeOut(tween(120)) + androidx.compose.animation.slideOutVertically(tween(200)) { it / 24 } }
                 ) {
                     composable("pair") {
-                        PairScreen(vm) { uid, pr, tok ->
+                        PairScreen(vm, pairingAccount) { uid, pr, tok ->
                             ProfileStore.save(prefs, pr)
                             profile = pr
+                            pairingAccount = null
                             prefs.edit().putInt("uid", uid).putString("token", tok).apply()
                             ApiClient.authToken = tok
                             vm.userId = uid
@@ -325,6 +328,30 @@ fun CoupleApp(activity: ComponentActivity, vm: AppVm, prefs: SharedPreferences) 
                                 prefs.edit().putString("base_url", it).apply()
                                 ApiClient.init(it)
                             },
+                            onLeavePair = {
+                                val leaving = vm.userId
+                                if (leaving != null) vm.viewModelScope.launch {
+                                    vm.error = null
+                                    try {
+                                        val account = withContext(Dispatchers.IO) {
+                                            ApiClient.api.pairLeave(leaving)
+                                        }
+                                        val pr = LocalProfile(
+                                            account.avatar, account.birth, account.together_since
+                                        )
+                                        ProfileStore.save(prefs, pr)
+                                        profile = pr
+                                        pairingAccount = account
+                                        LocationSync.setSharing(ctx, false)
+                                        refreshWidget()
+                                        nav.navigate("pair") {
+                                            popUpTo(nav.graph.id) { inclusive = true }
+                                        }
+                                    } catch (e: Exception) {
+                                        vm.error = e.message
+                                    }
+                                }
+                            },
                             onLogout = {
                                 val leaving = vm.userId
                                 if (leaving != null && LocationSync.isSharing(ctx)) {
@@ -337,6 +364,7 @@ fun CoupleApp(activity: ComponentActivity, vm: AppVm, prefs: SharedPreferences) 
                                 ApiClient.authToken = ""
                                 ProfileStore.clear(prefs)
                                 profile = LocalProfile()
+                                pairingAccount = null
                                 vm.userId = null
                                 vm.error = null
                                 refreshWidget()
