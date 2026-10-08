@@ -1,4 +1,4 @@
-"""Telegram-бот подписки Enrwine: привязка кода + оплата.
+"""Telegram-бот подписки Enrwine: привязка по email + оплата.
 
 Запуск: импортируется из main.py (threading в startup) при заданном
 TELEGRAM_BOT_TOKEN. Только стандартная библиотека, зависимостей нет.
@@ -62,12 +62,16 @@ def send(token, chat, text, buttons=None):
 
 
 def send_payment(token, chat, uid):
+    con = db()
+    user = con.execute("SELECT email FROM users WHERE id=?", (uid,)).fetchone()
+    con.close()
+    email = safe(user["email"]) if user and user["email"] else "не указана"
     payload = {
         "chat_id": chat,
         "text": (f"💫 <b>Enrwine Premium на {PREMIUM_DAYS} дней</b>\n\n"
                  "Нажми кнопку ниже для оплаты через СберБанк. "
                  "После оплаты отправь чек администратору для активации Premium.\n\n"
-                 f"Номер аккаунта: <code>{uid}</code>"),
+                 f"Почта аккаунта: <code>{email}</code>"),
         "parse_mode": "HTML",
         "reply_markup": {
             "inline_keyboard": [[{
@@ -114,26 +118,29 @@ def grant_premium(user_id, days=PREMIUM_DAYS):
     return until
 
 
-def link_code(tg_id, tg_name, code):
-    """Привязка chat-id по коду из приложения. Возвращает (ok, текст, user_id)."""
-    code = (code or "").strip().upper()
+def link_email(tg_id, tg_name, email):
+    """Привязка Telegram к аккаунту по почте входа."""
+    email = (email or "").strip().lower()
+    if "@" not in email or "." not in email.rsplit("@", 1)[-1]:
+        return False, "Пришли почту, с которой входишь в Enrwine.", None
     con = db()
-    row = con.execute("SELECT user_id FROM tg WHERE code=?", (code,)).fetchone()
-    if not row and code:
+    user = con.execute("SELECT id, name FROM users WHERE email=?", (email,)).fetchone()
+    if not user:
         con.close()
-        return False, "Код не найден. Возьми свежий код в приложении: Ещё → Premium.", None
-    if not row:
-        con.close()
-        return False, "Пришли код из приложения: Ещё → Premium → «Показать код».", None
-    uid = row["user_id"]
-    con.execute("UPDATE tg SET tg_id=?, tg_name=?, code='' WHERE user_id=?",
-                (tg_id, tg_name, uid))
+        return False, "Аккаунт с такой почтой не найден. Проверь адрес и отправь ещё раз.", None
+    uid = user["id"]
+    now = datetime.datetime.now().isoformat(timespec="seconds")
+    con.execute("DELETE FROM tg WHERE tg_id=? AND user_id!=?", (tg_id, uid))
+    con.execute(
+        "INSERT INTO tg(user_id,tg_id,tg_name,ts) VALUES(?,?,?,?) "
+        "ON CONFLICT(user_id) DO UPDATE SET tg_id=excluded.tg_id, "
+        "tg_name=excluded.tg_name, ts=excluded.ts",
+        (uid, tg_id, tg_name, now))
     con.commit()
-    user = con.execute("SELECT name FROM users WHERE id=?", (uid,)).fetchone()
     con.close()
-    aname = safe(user["name"]) if user else str(uid)
-    return True, (f"✅ <b>Готово!</b> Привязано к аккаунту «{aname}».\n"
-                 f"Нажми «Купить Premium 💫» для оплаты"), uid
+    aname = safe(user["name"])
+    return True, (f"✅ <b>Готово!</b> Почта <code>{safe(email)}</code> привязана "
+                  f"к аккаунту «{aname}».\nНажми «Купить Premium 💫» для оплаты"), uid
 
 
 def user_by_tg(tg_id):
@@ -211,7 +218,7 @@ def is_admin(tg_id):
 
 
 def find_user(key):
-    """Поиск пользователя по id или коду пары. Возвращает (id, name) или None."""
+    """Поиск пользователя по id или email. Возвращает (id, name) или None."""
     key = (key or "").strip()
     con = db()
     row = None
@@ -219,8 +226,8 @@ def find_user(key):
         row = con.execute("SELECT id, name FROM users WHERE id=?",
                           (int(key),)).fetchone()
     if row is None and key:
-        row = con.execute("SELECT id, name FROM users WHERE pair_code=?",
-                          (key.upper(),)).fetchone()
+        row = con.execute("SELECT id, name FROM users WHERE email=?",
+                          (key.lower(),)).fetchone()
     con.close()
     return (row["id"], row["name"]) if row else None
 
@@ -228,7 +235,7 @@ def find_user(key):
 def admin_grant(key, days):
     found = find_user(key)
     if not found:
-        return "Пользователь не найден. Пришли id или код пары."
+        return "Пользователь не найден. Пришли email или id."
     uid, name = found
     until = grant_premium(uid, days)
     return f"✅ <b>{safe(name)}</b> (id {uid}) — Premium до <b>{until}</b>."
@@ -237,7 +244,7 @@ def admin_grant(key, days):
 def admin_revoke(key):
     found = find_user(key)
     if not found:
-        return "Пользователь не найден. Пришли id или код пары."
+        return "Пользователь не найден. Пришли email или id."
     uid, name = found
     con = db()
     con.execute("UPDATE users SET premium_until='' WHERE id=?", (uid,))
@@ -249,14 +256,15 @@ def admin_revoke(key):
 def admin_users():
     con = db()
     rows = con.execute(
-        "SELECT id, name, premium_until FROM users ORDER BY id DESC LIMIT 10").fetchall()
+        "SELECT id, name, email, premium_until FROM users ORDER BY id DESC LIMIT 10").fetchall()
     con.close()
     today = datetime.date.today().isoformat()
     lines = []
     for r in rows:
         mark = "💫" if r["premium_until"] and r["premium_until"] >= today else "–"
-        lines.append(f"{mark} <b>{safe(r['name'])}</b> (id {r['id']})"
-                     + (f" до {r['premium_until']}" if r["premium_until"] else ""))
+        account = safe(r["email"]) if r["email"] else f"id {r['id']}"
+        lines.append(f"{mark} <b>{safe(r['name'])}</b> ({account})"
+                      + (f" до {r['premium_until']}" if r["premium_until"] else ""))
     return "Последние пользователи:\n" + "\n".join(lines) if lines else "Пока пусто."
 
 
@@ -287,20 +295,20 @@ def handle_message(token, m):
             days = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 365
             key = parts[1] if len(parts) > 1 else ""
             send(token, chat, admin_grant(key, days) if key else
-                 "Формат: <code>/grant КОД_ПАРЫ [дней]</code>\nПример: <code>/grant A1B2C3 365</code>",
+                  "Формат: <code>/grant email [дней]</code>\nПример: <code>/grant user@mail.ru 365</code>",
                  MENU)
         elif cmd == "/ungrant":
             key = parts[1] if len(parts) > 1 else ""
             send(token, chat, admin_revoke(key) if key else
-                 "Формат: <code>/ungrant КОД_ПАРЫ</code>", MENU)
+                  "Формат: <code>/ungrant email</code>", MENU)
         elif cmd == "/users":
             send(token, chat, admin_users(), MENU)
         elif cmd == "/stats":
             send(token, chat, admin_stats(), MENU)
         else:
             send(token, chat,
-                 "🔧 <b>Админка</b>\n<code>/grant КОД [дней]</code> — выдать Premium (по умолчанию год)\n"
-                 "<code>/ungrant КОД</code> — забрать\n<code>/users</code> — последние пользователи\n"
+                  "🔧 <b>Админка</b>\n<code>/grant email [дней]</code> — выдать Premium (по умолчанию год)\n"
+                  "<code>/ungrant email</code> — забрать\n<code>/users</code> — последние пользователи\n"
                  "<code>/stats</code> — цифры", MENU)
         return
     if "successful_payment" in m:
@@ -324,8 +332,8 @@ def handle_message(token, m):
                 pass
         else:
             send(token, chat,
-                 "Оплата прошла, но аккаунт не привязан. Пришли код из приложения "
-                 "(Ещё → Premium → «Показать код»).", MENU)
+                  "Оплата прошла, но аккаунт не привязан. Пришли почту, "
+                  "с которой входишь в Enrwine.", MENU)
         return
     if text.startswith("/start"):
         parts = text.split(maxsplit=1)
@@ -338,15 +346,14 @@ def handle_message(token, m):
             send(token, chat,
                  "🎉 <b>Ты пришёл по приглашению!</b> Когда купишь Premium — "
                  "друг получит бонусные дни 💫\n\n"
-                 "Теперь привяжи свой аккаунт: возьми код в приложении "
-                 "(<b>Ещё → Premium → «Показать код»</b>) и пришли его сюда."
-                 if res == "ok" else
-                 "Привязка не удалась, но ты всё равно можешь пользоваться ботом: "
-                 "пришли код из приложения (<b>Ещё → Premium</b>).",
-                 MENU)
+                  "Теперь привяжи свой аккаунт: пришли почту, "
+                  "с которой входишь в Enrwine."
+                  if res == "ok" else
+                  "Привязка не удалась, но ты всё равно можешь пользоваться ботом: "
+                  "пришли почту аккаунта Enrwine.",
+                  MENU)
         elif len(parts) > 1:
-            ok, msg, _ = link_code(chat, tg_name, parts[1])
-            send(token, chat, msg if ok else "❌ " + msg, MENU)
+            send(token, chat, "Пришли почту, с которой входишь в Enrwine.", MENU)
         else:
             uid = user_by_tg(chat)
             if not uid:
@@ -355,17 +362,17 @@ def handle_message(token, m):
                  ("✅ <b>Ты уже привязан.</b> Нажми «Купить Premium 💫» — и всё твоё."
                   if uid else
                   "<b>Привет! Это бот подписки Enrwine 💞</b>\n\n"
-                  "1️⃣ Возьми код в приложении: <b>Ещё → Premium → «Показать код»</b>\n"
-                  "2️⃣ Пришли код сюда (или перейди по кнопке «Открыть бота» — код подставится сам)\n"
-                  "3️⃣ Нажми «Купить Premium 💫» и перейди к оплате"),
+                  "1️⃣ Пришли почту, с которой входишь в Enrwine\n"
+                  "2️⃣ Нажми «Купить Premium 💫»\n"
+                  "3️⃣ Перейди к оплате"),
                  MENU)
         return
     if text == "Мой статус ⭐":
         uid = user_by_tg(chat)
         if not uid:
             send(token, chat,
-                 "Сначала привяжи аккаунт:\n1️⃣ Возьми код в приложении (<b>Ещё → Premium</b>)\n"
-                 "2️⃣ Пришли его сюда.", MENU)
+                  "Сначала привяжи аккаунт: пришли почту, "
+                  "с которой входишь в Enrwine.", MENU)
             return
         until = premium_until(uid) or ""
         try:
@@ -382,7 +389,7 @@ def handle_message(token, m):
         uid = user_by_tg(chat)
         if not uid:
             send(token, chat,
-                 "Сначала привяжи аккаунт: пришли код из приложения (<b>Ещё → Premium</b>).",
+                  "Сначала привяжи аккаунт: пришли почту аккаунта Enrwine.",
                  MENU)
             return
         inv, earn = ref_stats(uid)
@@ -397,14 +404,14 @@ def handle_message(token, m):
         uid = user_by_tg(chat)
         if not uid:
             send(token, chat,
-                 "Сначала привяжи аккаунт: пришли код из приложения (<b>Ещё → Premium</b>).",
+                  "Сначала привяжи аккаунт: пришли почту аккаунта Enrwine.",
                  MENU)
             return
         send_payment(token, chat, uid)
         return
-    # всё остальное считаем кодом привязки
+    # Почта из сообщения связывает Telegram с аккаунтом Enrwine.
     if text:
-        ok, msg, _ = link_code(chat, tg_name, text)
+        ok, msg, _ = link_email(chat, tg_name, text)
         send(token, chat, msg if ok else "❌ " + msg, MENU)
 
 

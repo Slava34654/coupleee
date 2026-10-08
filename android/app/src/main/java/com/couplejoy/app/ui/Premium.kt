@@ -13,7 +13,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -23,12 +22,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.couplejoy.app.AppVm
 import com.couplejoy.app.api.ApiClient
-import com.couplejoy.app.api.LinkCodeIn
 import com.couplejoy.app.api.PremiumOut
-import kotlinx.coroutines.launch
 
 const val BOT_LINK = "https://t.me/Enrwine_bot"
-const val PREMIUM_PRICE = "99 ⭐ / 30 дней"
+const val PREMIUM_PRICE = "99 ₽ / 30 дней"
 
 /** null — грузится, true/false — есть ли подписка. */
 @Composable
@@ -50,7 +47,7 @@ fun PaywallCard(what: String, onOpen: () -> Unit) {
             Spacer(Modifier.height(8.dp))
             Text(
                 "$what — по подписке ($PREMIUM_PRICE) через Telegram-бота. " +
-                    "Оплата звёздами, продление одной кнопкой.",
+                    "Оплата по почте аккаунта, продление одной кнопкой.",
                 color = Color.White.copy(alpha = 0.92f),
                 style = MaterialTheme.typography.bodyMedium
             )
@@ -64,10 +61,7 @@ fun PaywallCard(what: String, onOpen: () -> Unit) {
 fun PremiumScreen(vm: AppVm, onBack: () -> Unit) {
     val uid = vm.userId ?: return
     val ctx = LocalContext.current
-    val scope = rememberCoroutineScope()
     var status by remember { mutableStateOf<PremiumOut?>(null) }
-    var code by remember { mutableStateOf<String?>(null) }
-    var busy by remember { mutableStateOf(false) }
     fun reload() = vm.io({}, { ApiClient.api.premium(uid) }) { status = it }
     LaunchedEffect(uid) { reload() }
     ListScreen {
@@ -131,45 +125,27 @@ fun PremiumScreen(vm: AppVm, onBack: () -> Unit) {
         item {
             Appear(1) {
                 SoftCard(Modifier.fillMaxWidth()) {
-                    Text("Привязка Telegram", style = MaterialTheme.typography.titleMedium)
+                    Text("Покупка по почте", style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        "1. Нажми «Показать код»\n2. Открой бота кнопкой ниже — код подставится сам\n3. Нажми в боте «Купить Premium 💫» и оплати звёздами",
+                        "1. Открой бота\n2. Отправь ему почту, с которой входишь в Enrwine\n" +
+                            "3. Нажми «Купить Premium 💫» и оплати подписку",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(Modifier.height(12.dp))
-                    val c = code
-                    if (c == null) {
-                        PrimaryButton(
-                            if (busy) "…" else "Показать код",
-                            {
-                                scope.launch {
-                                    busy = true
-                                    try {
-                                        code = ApiClient.api.premiumCode(LinkCodeIn(uid)).code
-                                    } catch (e: Exception) { vm.error = e.message }
-                                    busy = false
-                                }
-                            },
-                            Modifier.fillMaxWidth(), enabled = !busy
-                        )
-                    } else {
+                    status?.email?.takeIf { it.isNotBlank() }?.let { email ->
                         Text(
-                            c, fontSize = 34.sp, fontWeight = FontWeight.ExtraBold,
-                            letterSpacing = 6.sp, color = LocalCj.current.accentA
+                            email, fontSize = 18.sp, fontWeight = FontWeight.Bold,
+                            color = LocalCj.current.accentA
                         )
                         Spacer(Modifier.height(12.dp))
-                        PrimaryButton(
-                            "Открыть бота",
-                            {
-                                ctx.startActivity(
-                                    Intent(Intent.ACTION_VIEW, Uri.parse("$BOT_LINK?start=$c"))
-                                )
-                            },
-                            Modifier.fillMaxWidth()
-                        )
                     }
+                    PrimaryButton(
+                        "Открыть бота",
+                        { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(BOT_LINK))) },
+                        Modifier.fillMaxWidth()
+                    )
                 }
             }
         }

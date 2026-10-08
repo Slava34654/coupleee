@@ -48,6 +48,9 @@ assert _raw_get("/me", params={"user_id": auth_user["user_id"]},
                 headers={"X-Auth-Token": auth_user["token"]}).status_code == 401
 assert _raw_get("/me", params={"user_id": auth_user["user_id"]},
                 headers={"X-Auth-Token": TOK[auth_user["user_id"]]}).status_code == 200
+premium = c.get("/premium", params={"user_id": auth_user["user_id"]}).json()
+assert premium["email"] == "new@example.com" and not premium["premium"]
+assert c.post("/premium/code", json={"user_id": auth_user["user_id"]}).status_code == 404
 print("email auth OK")
 
 r = c.post("/pair", json={"name": "Алекс"})

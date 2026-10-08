@@ -362,10 +362,10 @@ def init_db():
               "lon REAL NOT NULL, ts TEXT NOT NULL)")
     if "premium_until" not in cols_u:
         c.execute("ALTER TABLE users ADD COLUMN premium_until TEXT DEFAULT ''")
-    # Telegram-привязка для подписки: код связывает аккаунт пары с chat-id
+    # Telegram-привязка подписки к аккаунту по email.
     c.execute("CREATE TABLE IF NOT EXISTS tg(user_id INTEGER PRIMARY KEY, "
-              "tg_id INTEGER UNIQUE, tg_name TEXT DEFAULT '', "
-              "code TEXT DEFAULT '', ts TEXT DEFAULT '')")
+               "tg_id INTEGER UNIQUE, tg_name TEXT DEFAULT '', "
+               "ts TEXT DEFAULT '')")
     # Рефералка: кто по чьей ссылке пришёл (rewarded=1 — бонус уже выдан)
     c.execute("CREATE TABLE IF NOT EXISTS refs(tg_id INTEGER PRIMARY KEY, "
               "referrer INTEGER NOT NULL, ts TEXT DEFAULT '', "
@@ -428,7 +428,7 @@ def android_app():
     if not os.path.isfile(path):
         raise HTTPException(404, "APK is not available")
     return FileResponse(path, media_type="application/vnd.android.package-archive",
-                        filename="Enrwine-1.6.apk")
+                        filename="Enrwine-1.7.apk")
 
 WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
 
@@ -1532,35 +1532,18 @@ def distance(user_id: int):
     return out
 
 # ---------------- подписка через Telegram-бота ----------------
-# Приложение просит код (POST /premium/code), пользователь отправляет его
-# боту, бот привязывает chat-id и после оплаты Stars продлевает premium_until.
-class LinkCodeIn(BaseModel):
-    user_id: int
-
 def premium_active(premium_until: str) -> bool:
     try:
         return bool(premium_until) and datetime.date.fromisoformat(premium_until) >= datetime.date.today()
     except ValueError:
         return False
 
-@app.post("/premium/code")
-def premium_code(body: LinkCodeIn):
-    couple_of(body.user_id)
-    code = new_code()
-    now = datetime.datetime.now().isoformat(timespec="seconds")
-    con = db()
-    con.execute("INSERT INTO tg(user_id,code,ts) VALUES(?,?,?) "
-                "ON CONFLICT(user_id) DO UPDATE SET code=excluded.code, ts=excluded.ts",
-                (body.user_id, code, now))
-    con.commit()
-    con.close()
-    return {"code": code}
-
 @app.get("/premium")
 def premium_status(user_id: int):
-    me, partner = couple_of(user_id)
+    me, _ = couple_of(user_id)
     until = me["premium_until"] or "" if "premium_until" in me.keys() else ""
-    return {"premium": premium_active(until), "until": until}
+    email = me["email"] or "" if "email" in me.keys() else ""
+    return {"premium": premium_active(until), "until": until, "email": email}
 
 # ---------------- общая дата «вместе с…» ----------------
 # Единый счётчик для обоих: создатель задаёт при создании пары,
