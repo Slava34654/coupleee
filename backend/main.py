@@ -5,7 +5,7 @@
     uvicorn main:app --reload --port 8000
 Документация: http://127.0.0.1:8000/docs
 """
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, UploadFile, File
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, UploadFile, File, BackgroundTasks
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -335,6 +335,11 @@ def init_db():
         proposal_name TEXT DEFAULT '',
         proposed_by INTEGER,
         version INTEGER NOT NULL DEFAULT 1,
+        updated_at TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS push_tokens(
+        token TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        platform TEXT NOT NULL DEFAULT 'android',
         updated_at TEXT NOT NULL);
     """)
     # мягкие миграции для старых БД
@@ -680,6 +685,11 @@ class CompanionActionIn(BaseModel):
     action: str
     value: str = ""
 
+class PushTokenIn(BaseModel):
+    user_id: int
+    token: str
+    platform: str = "android"
+
 # ---------------- pairing / профиль ----------------
 def new_code():
     return "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
@@ -931,10 +941,91 @@ def partner_profile(user_id: int):
             "latest_mood": dict(mood) if mood else None,
             "answers": answers, "moods": moods, "moments": moments, "taps": taps}
 
+# ---------------- push-уведомления ----------------
+def firebase_messaging():
+    """Инициализирует Firebase только при первой фактической отправке."""
+    try:
+        import firebase_admin
+        from firebase_admin import credentials, messaging
+        if not firebase_admin._apps:
+            raw = os.environ.get("FIREBASE_SERVICE_ACCOUNT_JSON", "").strip()
+            path = os.environ.get(
+                "FIREBASE_SERVICE_ACCOUNT_FILE",
+                os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "firebase-service-account.json"))
+            if raw:
+                firebase_admin.initialize_app(credentials.Certificate(json.loads(raw)))
+            elif os.path.isfile(path):
+                firebase_admin.initialize_app(credentials.Certificate(path))
+            else:
+                return None
+        return messaging
+    except Exception as exc:
+        print(f"Firebase initialization failed: {type(exc).__name__}")
+        return None
+
+def send_mood_push(user_id: int, partner_name: str, mood: str):
+    messaging = firebase_messaging()
+    if messaging is None:
+        return
+    con = db()
+    tokens = [r["token"] for r in con.execute(
+        "SELECT token FROM push_tokens WHERE user_id=?", (user_id,)).fetchall()]
+    con.close()
+    invalid = []
+    for token in tokens:
+        try:
+            messaging.send(messaging.Message(
+                notification=messaging.Notification(
+                    title=f"Новое настроение от {partner_name}",
+                    body=f"Партнёр выбрал настроение {mood}"),
+                data={"type": "mood", "mood": mood},
+                android=messaging.AndroidConfig(
+                    priority="high",
+                    notification=messaging.AndroidNotification(
+                        sound="default")),
+                token=token))
+        except Exception as exc:
+            if type(exc).__name__ in ("UnregisteredError", "SenderIdMismatchError"):
+                invalid.append(token)
+            else:
+                print(f"Firebase send failed: {type(exc).__name__}")
+    if invalid:
+        con = db()
+        con.executemany("DELETE FROM push_tokens WHERE token=?",
+                        [(token,) for token in invalid])
+        con.commit(); con.close()
+
+@app.post("/push/register")
+def push_register(body: PushTokenIn):
+    couple_of(body.user_id)
+    token = body.token.strip()
+    platform = body.platform.strip().lower()
+    if not 20 <= len(token) <= 4096:
+        raise HTTPException(400, "invalid push token")
+    if platform not in ("android", "ios"):
+        raise HTTPException(400, "invalid push platform")
+    con = db()
+    con.execute(
+        "INSERT OR REPLACE INTO push_tokens(token,user_id,platform,updated_at) VALUES(?,?,?,?)",
+        (token, body.user_id, platform,
+         datetime.datetime.now().isoformat(timespec="seconds")))
+    con.commit(); con.close()
+    return {"ok": True}
+
+@app.post("/push/unregister")
+def push_unregister(body: PushTokenIn):
+    couple_of(body.user_id)
+    con = db()
+    con.execute("DELETE FROM push_tokens WHERE token=? AND user_id=?",
+                (body.token.strip(), body.user_id))
+    con.commit(); con.close()
+    return {"ok": True}
+
 # ---------------- настроение ----------------
 @app.post("/mood")
-async def set_mood(body: MoodIn):
-    couple_of(body.user_id)
+async def set_mood(body: MoodIn, background_tasks: BackgroundTasks):
+    me, partner = couple_of(body.user_id)
     con = db()
     con.execute("INSERT INTO moods(user_id,mood,note,ts) VALUES(?,?,?,?)",
                 (body.user_id, body.mood, body.note,
@@ -942,6 +1033,9 @@ async def set_mood(body: MoodIn):
     con.commit()
     con.close()
     await wsman.ping_couple(body.user_id, "mood")
+    if partner:
+        background_tasks.add_task(
+            send_mood_push, partner["id"], me["name"], body.mood)
     return {"ok": True}
 
 # ---------------- ежедневный вопрос ----------------

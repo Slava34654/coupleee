@@ -8,6 +8,7 @@ bin/*.exe
 bin/*.log
 backend/server.log
 backend/server_*.log
+backend/firebase-service-account*.json
 android/.gradle/
 android/app/build/
 android/.idea/
