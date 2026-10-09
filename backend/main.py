@@ -7,6 +7,7 @@
 """
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, UploadFile, File
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Optional
 from typing import Optional, List
@@ -447,14 +448,6 @@ def pet3d():
     """3D-питомец (Three.js): уход, комнаты, мини-игры. Прогресс хранится локально в браузере."""
     return FileResponse(os.path.join(WEB_DIR, "pet3d.html"),
                         media_type="text/html")
-
-@app.get("/icons/{name}", include_in_schema=False)
-def pwa_icon(name: str):
-    if name not in ("icon-192.png", "icon-512.png",
-                    "maskable-512.png", "apple-180.png"):
-        raise HTTPException(404, "not found")
-    return FileResponse(os.path.join(WEB_DIR, "icons", name),
-                        media_type="image/png")
 
 # ---------------- реалтайм: WebSocket ----------------
 class WSManager:
@@ -1128,6 +1121,64 @@ def moods_feed(user_id: int):
     con.close()
     return [dict(r) for r in rows]
 
+# ---------------- активность партнёра ----------------
+@app.get("/activity")
+def partner_activity(user_id: int, limit: int = 50):
+    _, partner = couple_of(user_id)
+    if not partner:
+        return {"partner_name": "", "items": []}
+
+    limit = max(1, min(limit, 100))
+    pid = partner["id"]
+    con = db()
+    items = []
+
+    for r in con.execute(
+        "SELECT id,mood,note,ts FROM moods WHERE user_id=? ORDER BY ts DESC LIMIT ?",
+        (pid, limit)
+    ):
+        items.append({"id": f"mood:{r['id']}", "type": "mood", "ts": r["ts"],
+                      "detail": r["mood"], "extra": r["note"] or "", "photo": ""})
+
+    for r in con.execute(
+        "SELECT qdate,qindex,ts FROM answers WHERE user_id=? ORDER BY ts DESC LIMIT ?",
+        (pid, limit)
+    ):
+        items.append({"id": f"daily:{r['qdate']}:{r['qindex']}", "type": "daily",
+                      "ts": r["ts"], "detail": "", "extra": "", "photo": ""})
+
+    for r in con.execute(
+        "SELECT a.pack_id,a.qid,a.ts,p.title FROM pack_a a "
+        "JOIN packs p ON p.id=a.pack_id WHERE a.user_id=? ORDER BY a.ts DESC LIMIT ?",
+        (pid, limit)
+    ):
+        items.append({"id": f"pack:{r['pack_id']}:{r['qid']}", "type": "pack",
+                      "ts": r["ts"], "detail": r["title"], "extra": "", "photo": ""})
+
+    for r in con.execute(
+        "SELECT id,title,photo,ts FROM journal WHERE user_id=? ORDER BY ts DESC LIMIT ?",
+        (pid, limit)
+    ):
+        items.append({"id": f"journal:{r['id']}", "type": "journal", "ts": r["ts"],
+                      "detail": r["title"], "extra": "", "photo": r["photo"] or ""})
+
+    for r in con.execute(
+        "SELECT id,ts FROM taps WHERE user_id=? ORDER BY ts DESC LIMIT ?", (pid, limit)
+    ):
+        items.append({"id": f"tap:{r['id']}", "type": "tap", "ts": r["ts"],
+                      "detail": "", "extra": "", "photo": ""})
+
+    for r in con.execute(
+        "SELECT id,photo,caption,ts FROM widget_photos WHERE user_id=? ORDER BY ts DESC LIMIT ?",
+        (pid, limit)
+    ):
+        items.append({"id": f"widget:{r['id']}", "type": "widget", "ts": r["ts"],
+                      "detail": r["caption"] or "", "extra": "", "photo": r["photo"]})
+
+    con.close()
+    items.sort(key=lambda item: item["ts"], reverse=True)
+    return {"partner_name": partner["name"], "items": items[:limit]}
+
 # ---------------- статистика пары ----------------
 @app.get("/stats")
 def stats(user_id: int):
@@ -1703,3 +1754,7 @@ async def game_action(kind: str, body: GameActionIn):
     con.commit(); con.close()
     await wsman.ping_couple(body.user_id, "game")
     return game_response(kind, state, version, me, partner)
+
+
+# Keep this mount last so API, WebSocket, photos and APK routes take priority.
+app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="flutter_web")
