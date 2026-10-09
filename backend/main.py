@@ -969,6 +969,10 @@ def firebase_messaging():
         print(f"Firebase initialization failed: {type(exc).__name__}")
         return None
 
+@app.get("/health/push", include_in_schema=False)
+def push_health():
+    return {"configured": firebase_messaging() is not None}
+
 def send_mood_push(user_id: int, partner_name: str, mood: str):
     messaging = firebase_messaging()
     if messaging is None:
