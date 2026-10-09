@@ -15,6 +15,7 @@ from contextvars import ContextVar
 from starlette.middleware.base import BaseHTTPMiddleware
 import secrets
 import hashlib
+import base64
 import sqlite3
 import datetime
 import json
@@ -949,11 +950,15 @@ def firebase_messaging():
         from firebase_admin import credentials, messaging
         if not firebase_admin._apps:
             raw = os.environ.get("FIREBASE_SERVICE_ACCOUNT_JSON", "").strip()
+            encoded = os.environ.get("FIREBASE_SERVICE_ACCOUNT_BASE64", "").strip()
             path = os.environ.get(
                 "FIREBASE_SERVICE_ACCOUNT_FILE",
                 os.path.join(os.path.dirname(os.path.abspath(__file__)),
                              "firebase-service-account.json"))
-            if raw:
+            if encoded:
+                value = json.loads(base64.b64decode(encoded).decode("utf-8"))
+                firebase_admin.initialize_app(credentials.Certificate(value))
+            elif raw:
                 firebase_admin.initialize_app(credentials.Certificate(json.loads(raw)))
             elif os.path.isfile(path):
                 firebase_admin.initialize_app(credentials.Certificate(path))
