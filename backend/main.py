@@ -328,6 +328,14 @@ def init_db():
         state TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1,
         updated_at TEXT NOT NULL,
         PRIMARY KEY(pair_key, kind));
+    CREATE TABLE IF NOT EXISTS companions(
+        pair_key TEXT PRIMARY KEY,
+        state TEXT NOT NULL,
+        proposal_type TEXT DEFAULT '',
+        proposal_name TEXT DEFAULT '',
+        proposed_by INTEGER,
+        version INTEGER NOT NULL DEFAULT 1,
+        updated_at TEXT NOT NULL);
     """)
     # мягкие миграции для старых БД
     cols_j = [r["name"] for r in c.execute("PRAGMA table_info(journal)").fetchall()]
@@ -658,6 +666,19 @@ class GameActionIn(BaseModel):
     user_id: int
     action: str
     value: Optional[int] = None
+
+class CompanionProposalIn(BaseModel):
+    user_id: int
+    type: str
+    name: str
+
+class CompanionUserIn(BaseModel):
+    user_id: int
+
+class CompanionActionIn(BaseModel):
+    user_id: int
+    action: str
+    value: str = ""
 
 # ---------------- pairing / профиль ----------------
 def new_code():
@@ -1616,6 +1637,268 @@ async def together_set(body: TogetherIn):
     await wsman.ping_couple(body.user_id, "pair")
     days = (datetime.date.today() - datetime.date.fromisoformat(date)).days
     return {"date": date, "days": days}
+
+# ---------------- общий питомец пары ----------------
+COMPANION_ROOMS = {"rose": 0, "garden": 40, "night": 65, "beach": 90}
+
+def companion_couple(user_id: int):
+    me, partner = couple_of(user_id)
+    if not partner:
+        raise HTTPException(400, "partner has not joined yet")
+    key = f"{min(me['id'], partner['id'])}:{max(me['id'], partner['id'])}"
+    return me, partner, key
+
+def fresh_companion():
+    return {
+        "type": "PET", "name": "", "adopted": False,
+        "hunger": .72, "joy": .72, "energy": .8, "clean": .8,
+        "bond": 0, "level": 1, "xp": 0, "coins": 20,
+        "sleeping": False, "timestamp": 0, "lastAction": 0,
+        "cooldowns": {}, "day": "", "dailyActions": [],
+        "rewardedDay": "", "careDay": "", "streak": 0,
+        "room": "rose", "ownedRooms": ["rose"], "accessory": "none",
+    }
+
+def normalize_companion(value):
+    state = fresh_companion()
+    if isinstance(value, dict):
+        state.update(value)
+    state["type"] = state["type"] if state["type"] in ("PET", "BABY") else "PET"
+    state["cooldowns"] = dict(state.get("cooldowns") or {})
+    state["dailyActions"] = list(dict.fromkeys(state.get("dailyActions") or []))
+    state["ownedRooms"] = list(dict.fromkeys(state.get("ownedRooms") or ["rose"]))
+    return state
+
+def companion_day(now_ms: int):
+    return datetime.datetime.fromtimestamp(now_ms / 1000).date().isoformat()
+
+def companion_advance(value, now_ms: int):
+    state = normalize_companion(value)
+    timestamp = int(state.get("timestamp") or 0)
+    hours = 0 if not timestamp else min(max(now_ms - timestamp, 0), 24 * 3600000) / 3600000
+    sleeping = bool(state.get("sleeping"))
+    state["hunger"] = min(1.0, max(.12, float(state["hunger"]) - hours * (.018 if sleeping else .035)))
+    state["joy"] = min(1.0, max(.15, float(state["joy"]) - hours * .022))
+    state["clean"] = min(1.0, max(.15, float(state["clean"]) - hours * .025))
+    state["energy"] = min(1.0, max(.12, float(state["energy"]) + hours * (.4 if sleeping else -.035)))
+    state["timestamp"] = max(timestamp, now_ms)
+    current_day = companion_day(now_ms)
+    if state.get("day") != current_day:
+        state["dailyActions"] = []
+    state["day"] = current_day
+    return state
+
+def companion_required_xp(level: int):
+    return 60 + level * 20
+
+def companion_care(value, action: str, now_ms: int):
+    state = companion_advance(value, now_ms)
+    if not state["adopted"]:
+        return state, "Сначала выберите малыша и имя", "idle"
+    if now_ms - int(state.get("lastAction") or 0) < 2500:
+        return state, "Подождите, малыш ещё занят", "idle"
+    if action == "sleep":
+        if not state["sleeping"] and float(state["energy"]) >= .95:
+            return state, "Я уже выспался! Давайте поиграем", "idle"
+        was_sleeping = bool(state["sleeping"])
+        state["sleeping"] = not was_sleeping
+        state["lastAction"] = now_ms
+        return state, ("Доброе утро!" if was_sleeping else
+                       "Тихий час · энергия растёт даже после закрытия приложения"), ("love" if was_sleeping else "sleep")
+    if state["sleeping"]:
+        return state, "Сначала разбудите малыша — пусть откроет глазки", "idle"
+    remaining = int(state["cooldowns"].get(action, 0)) - now_ms + 45000
+    if remaining > 0:
+        return state, f"Ещё {(remaining + 999) // 1000} с — можно попробовать другое действие", "idle"
+    if action == "feed":
+        if float(state["hunger"]) >= .92:
+            return state, "Животик полон — покормите немного позже", "idle"
+        state["hunger"] = min(1.0, float(state["hunger"]) + .25)
+        state["joy"] = min(1.0, float(state["joy"]) + .03)
+    elif action == "play":
+        if float(state["energy"]) < .25:
+            return state, "Сначала поспим: для игры нужна энергия", "idle"
+        if float(state["hunger"]) < .2:
+            return state, "Сначала перекусим, а потом поиграем", "idle"
+        if float(state["joy"]) >= .95:
+            return state, "Я счастлив! Давай немного отдохнём", "idle"
+        state["joy"] = min(1.0, float(state["joy"]) + .24)
+        state["energy"] = max(.12, float(state["energy"]) - .12)
+        state["hunger"] = max(.12, float(state["hunger"]) - .07)
+        state["clean"] = max(.15, float(state["clean"]) - .06)
+    elif action == "wash":
+        if float(state["clean"]) >= .95:
+            return state, "Уже чистенький! Можно обнять", "idle"
+        state["clean"] = 1.0
+        state["joy"] = min(1.0, float(state["joy"]) + .04)
+    elif action == "love":
+        state["joy"] = min(1.0, float(state["joy"]) + .06)
+        state["bond"] = min(100, int(state["bond"]) + 1)
+    else:
+        return state, "Неизвестное действие", "idle"
+
+    current_day = companion_day(now_ms)
+    yesterday = (datetime.datetime.fromtimestamp(now_ms / 1000).date() -
+                 datetime.timedelta(days=1)).isoformat()
+    actions = list(dict.fromkeys([*state["dailyActions"], action]))
+    daily_reward = len(actions) >= 3 and state.get("rewardedDay") != current_day
+    old_level = int(state["level"])
+    state["xp"] = int(state["xp"]) + (3 if action == "love" else 10)
+    state["coins"] = int(state["coins"]) + (0 if action == "love" else 2) + (15 if daily_reward else 0)
+    state["dailyActions"] = actions
+    if daily_reward:
+        state["rewardedDay"] = current_day
+    if state.get("careDay") != current_day:
+        state["streak"] = int(state["streak"]) + 1 if state.get("careDay") == yesterday else 1
+    state["careDay"] = current_day
+    state["cooldowns"][action] = now_ms
+    state["lastAction"] = now_ms
+    while int(state["level"]) < 10 and int(state["xp"]) >= companion_required_xp(int(state["level"])):
+        needed = companion_required_xp(int(state["level"]))
+        state["xp"] = int(state["xp"]) - needed
+        state["level"] = int(state["level"]) + 1
+        state["coins"] = int(state["coins"]) + 20
+    if int(state["level"]) == 10:
+        state["xp"] = min(int(state["xp"]), companion_required_xp(10))
+    if int(state["level"]) > old_level:
+        message = f"Новый уровень {state['level']}! +20 монет · малыш подрос"
+    elif daily_reward:
+        message = "Забота дня выполнена! +15 монет"
+    else:
+        message = {"feed": "Ням! Спасибо за вкусный обед",
+                   "wash": "Пузырьки! Теперь я чистенький",
+                   "play": "Ура! Обожаю играть с тобой",
+                   "love": "Как хорошо рядом с тобой ♥"}[action]
+    return state, message, action
+
+def companion_response(row, state, version: int, user_id: int,
+                       message: str = "", animation: str = "idle"):
+    proposal = None
+    if row and row["proposal_type"]:
+        proposal = {"type": row["proposal_type"], "name": row["proposal_name"],
+                    "proposed_by": row["proposed_by"],
+                    "is_mine": row["proposed_by"] == user_id}
+    return {"state": state, "version": version, "proposal": proposal,
+            "message": message, "animation": animation}
+
+@app.get("/companion")
+def companion_get(user_id: int):
+    _, _, pair_key = companion_couple(user_id)
+    con = db()
+    row = con.execute("SELECT * FROM companions WHERE pair_key=?", (pair_key,)).fetchone()
+    con.close()
+    state = companion_advance(json.loads(row["state"]), int(datetime.datetime.now().timestamp() * 1000)) if row else fresh_companion()
+    return companion_response(row, state, row["version"] if row else 0, user_id)
+
+@app.post("/companion/propose")
+async def companion_propose(body: CompanionProposalIn):
+    _, _, pair_key = companion_couple(body.user_id)
+    pet_type = body.type.strip().upper()
+    name = body.name.strip()
+    if pet_type not in ("PET", "BABY"):
+        raise HTTPException(400, "invalid companion type")
+    if not name or len(name) > 24:
+        raise HTTPException(400, "invalid companion name")
+    con = db()
+    con.execute("BEGIN IMMEDIATE")
+    row = con.execute("SELECT * FROM companions WHERE pair_key=?", (pair_key,)).fetchone()
+    state = normalize_companion(json.loads(row["state"])) if row else fresh_companion()
+    if state["adopted"]:
+        con.rollback(); con.close()
+        raise HTTPException(409, "companion already adopted")
+    version = (row["version"] if row else 0) + 1
+    now = datetime.datetime.now().isoformat(timespec="seconds")
+    con.execute("INSERT OR REPLACE INTO companions(pair_key,state,proposal_type,proposal_name,proposed_by,version,updated_at) VALUES(?,?,?,?,?,?,?)",
+                (pair_key, json.dumps(state), pet_type, name, body.user_id, version, now))
+    con.commit()
+    row = con.execute("SELECT * FROM companions WHERE pair_key=?", (pair_key,)).fetchone()
+    con.close()
+    await wsman.ping_couple(body.user_id, "companion")
+    return companion_response(row, state, version, body.user_id,
+                              "Предложение отправлено партнёру")
+
+@app.post("/companion/confirm")
+async def companion_confirm(body: CompanionUserIn):
+    _, _, pair_key = companion_couple(body.user_id)
+    con = db()
+    con.execute("BEGIN IMMEDIATE")
+    row = con.execute("SELECT * FROM companions WHERE pair_key=?", (pair_key,)).fetchone()
+    if not row or not row["proposal_type"]:
+        con.rollback(); con.close()
+        raise HTTPException(409, "no companion proposal")
+    if row["proposed_by"] == body.user_id:
+        con.rollback(); con.close()
+        raise HTTPException(409, "partner must confirm the proposal")
+    now_ms = int(datetime.datetime.now().timestamp() * 1000)
+    state = fresh_companion()
+    state.update({"type": row["proposal_type"], "name": row["proposal_name"],
+                  "adopted": True, "timestamp": now_ms})
+    version = row["version"] + 1
+    con.execute("UPDATE companions SET state=?,proposal_type='',proposal_name='',proposed_by=NULL,version=?,updated_at=? WHERE pair_key=?",
+                (json.dumps(state), version, datetime.datetime.now().isoformat(timespec="seconds"), pair_key))
+    con.commit(); con.close()
+    await wsman.ping_couple(body.user_id, "companion")
+    return companion_response(None, state, version, body.user_id,
+                              f"{state['name']} теперь живёт у вас!", "love")
+
+@app.post("/companion/action")
+async def companion_action(body: CompanionActionIn):
+    _, _, pair_key = companion_couple(body.user_id)
+    con = db()
+    con.execute("BEGIN IMMEDIATE")
+    row = con.execute("SELECT * FROM companions WHERE pair_key=?", (pair_key,)).fetchone()
+    if not row:
+        con.rollback(); con.close()
+        raise HTTPException(409, "choose a companion first")
+    state = normalize_companion(json.loads(row["state"]))
+    if not state["adopted"]:
+        con.rollback(); con.close()
+        raise HTTPException(409, "choose a companion first")
+    message, animation = "", "idle"
+    now_ms = int(datetime.datetime.now().timestamp() * 1000)
+    if body.action in ("feed", "play", "wash", "love", "sleep"):
+        state, message, animation = companion_care(state, body.action, now_ms)
+    elif body.action == "room":
+        room = body.value
+        if room not in COMPANION_ROOMS:
+            con.rollback(); con.close()
+            raise HTTPException(400, "room not found")
+        owned = set(state["ownedRooms"])
+        if room in owned:
+            state["room"], message = room, "Комната выбрана"
+        elif int(state["coins"]) < COMPANION_ROOMS[room]:
+            message = f"Нужно ещё {COMPANION_ROOMS[room] - int(state['coins'])} монет"
+        else:
+            state["coins"] = int(state["coins"]) - COMPANION_ROOMS[room]
+            state["room"] = room
+            state["ownedRooms"] = list(owned | {room})
+            message = "Комната ваша навсегда ✨"
+    elif body.action == "accessory":
+        levels = {"none": 1, "bow": 2, "crown": 5}
+        if body.value not in levels:
+            con.rollback(); con.close()
+            raise HTTPException(400, "accessory not found")
+        if int(state["level"]) < levels[body.value]:
+            con.rollback(); con.close()
+            raise HTTPException(409, "accessory is locked")
+        state["accessory"], message = body.value, "Украшение выбрано"
+    elif body.action == "rename":
+        name = body.value.strip()
+        if not name or len(name) > 24:
+            con.rollback(); con.close()
+            raise HTTPException(400, "invalid companion name")
+        state["name"], message = name, "Новое имя сохранено"
+    elif body.action == "reset":
+        state, message = fresh_companion(), "Можно выбрать нового друга вместе"
+    else:
+        con.rollback(); con.close()
+        raise HTTPException(400, "bad action")
+    version = row["version"] + 1
+    con.execute("UPDATE companions SET state=?,proposal_type='',proposal_name='',proposed_by=NULL,version=?,updated_at=? WHERE pair_key=?",
+                (json.dumps(state), version, datetime.datetime.now().isoformat(timespec="seconds"), pair_key))
+    con.commit(); con.close()
+    await wsman.ping_couple(body.user_id, "companion")
+    return companion_response(None, state, version, body.user_id, message, animation)
 
 # ---------------- онлайн-игры для пары ----------------
 SYNC_ROUNDS = [
