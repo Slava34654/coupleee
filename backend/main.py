@@ -1461,22 +1461,31 @@ async def idea_done(iid: int, done: bool = True):
     return {"ok": True}
 
 # ---------------- фото ----------------
-PHOTO_TYPES = {"image/jpeg": ".jpg", "image/png": ".png",
-               "image/webp": ".webp", "image/gif": ".gif"}
+def photo_extension(data: bytes):
+    if data.startswith(b"\xff\xd8\xff"):
+        return ".jpg"
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return ".png"
+    if data.startswith((b"GIF87a", b"GIF89a")):
+        return ".gif"
+    if len(data) >= 12 and data.startswith(b"RIFF") and data[8:12] == b"WEBP":
+        return ".webp"
+    return None
 
 @app.post("/photos")
 async def upload_photo(file: UploadFile = File(...)):
     # Без авторизации осознанно: загрузка нужна ДО создания аккаунта
     # (аватар при регистрации). Защита — лимит 5 МБ и типы файлов,
     # чтение — только по неугодаемым uuid-ссылкам.
-    if file.content_type not in PHOTO_TYPES:
-        raise HTTPException(400, "only jpeg/png/webp/gif images")
     data = await file.read()
     if len(data) > 5 * 1024 * 1024:
         raise HTTPException(400, "max 5MB")
+    extension = photo_extension(data)
+    if extension is None:
+        raise HTTPException(400, "only jpeg/png/webp/gif images")
     os.makedirs(PHOTO_DIR, exist_ok=True)
     import uuid as _uuid
-    name = _uuid.uuid4().hex + PHOTO_TYPES[file.content_type]
+    name = _uuid.uuid4().hex + extension
     with open(os.path.join(PHOTO_DIR, name), "wb") as f:
         f.write(data)
     return {"url": f"/photos/{name}"}
