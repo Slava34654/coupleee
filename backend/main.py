@@ -443,7 +443,7 @@ def android_app():
     if not os.path.isfile(path):
         raise HTTPException(404, "APK is not available")
     return FileResponse(path, media_type="application/vnd.android.package-archive",
-                        filename="Enrwine-1.8.apk")
+                        filename="Enrwine-latest.apk")
 
 WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
 
