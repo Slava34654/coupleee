@@ -12,6 +12,7 @@ TELEGRAM_BOT_TOKEN. Только стандартная библиотека, з
 """
 import datetime
 import json
+import logging
 import os
 import sqlite3
 import time
@@ -30,6 +31,25 @@ ADMIN_IDS = {int(x) for x in os.environ.get("ADMIN_TG_IDS", "").split(",") if x.
 REF_BONUS = int(os.environ.get("REF_BONUS_DAYS", "7"))
 APP_URL = os.environ.get("APP_PUBLIC_URL", "https://ssssw-sladaqqq.amvera.io")
 ICON_URL = APP_URL.rstrip("/") + "/icons/icon-512.png"
+
+_STATUS = {
+    "running": False,
+    "healthy": False,
+    "last_poll": None,
+    "last_error": None,
+}
+
+
+def bot_status():
+    return dict(_STATUS)
+
+
+def _record_error(exc):
+    message = f"{type(exc).__name__}: {exc}"[:300]
+    if message != _STATUS["last_error"]:
+        logging.warning("Telegram bot polling failed: %s", message)
+    _STATUS["healthy"] = False
+    _STATUS["last_error"] = message
 
 
 def db():
@@ -416,13 +436,24 @@ def handle_message(token, m):
 
 
 def run_bot(token):
+    _STATUS["running"] = True
+    try:
+        # Long polling cannot run while a webhook is configured for the bot.
+        api(token, "deleteWebhook", {"drop_pending_updates": False}, timeout=20)
+    except Exception as exc:
+        _record_error(exc)
     offset = 0
     while True:
         try:
             upd = api(token, "getUpdates",
                       {"offset": offset, "timeout": 50, "allowed_updates":
                        ["message", "pre_checkout_query"]}, timeout=70)
-        except Exception:
+            _STATUS["healthy"] = True
+            _STATUS["last_poll"] = datetime.datetime.now(
+                datetime.timezone.utc).isoformat(timespec="seconds")
+            _STATUS["last_error"] = None
+        except Exception as exc:
+            _record_error(exc)
             time.sleep(5)
             continue
         for u in upd.get("result", []):

@@ -973,6 +973,19 @@ def firebase_messaging():
 def push_health():
     return {"configured": firebase_messaging() is not None}
 
+
+@app.get("/health/bot", include_in_schema=False)
+def bot_health():
+    configured = bool(os.environ.get("TELEGRAM_BOT_TOKEN", "").strip())
+    if not configured:
+        return {"configured": False, "running": False, "healthy": False,
+                "last_poll": None, "last_error": "token_missing"}
+    try:
+        from backend.bot import bot_status
+    except ImportError:
+        from bot import bot_status
+    return {"configured": True, **bot_status()}
+
 def send_mood_push(user_id: int, partner_name: str, mood: str):
     messaging = firebase_messaging()
     if messaging is None:
