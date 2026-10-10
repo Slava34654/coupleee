@@ -986,7 +986,7 @@ def bot_health():
         from bot import bot_status
     return {"configured": True, **bot_status()}
 
-def send_mood_push(user_id: int, partner_name: str, mood: str):
+def send_mood_push(user_id: int, partner_name: str, mood: str, note: str = ""):
     messaging = firebase_messaging()
     if messaging is None:
         return
@@ -1000,7 +1000,8 @@ def send_mood_push(user_id: int, partner_name: str, mood: str):
             messaging.send(messaging.Message(
                 notification=messaging.Notification(
                     title=f"Новое настроение от {partner_name}",
-                    body=f"Партнёр выбрал настроение {mood}"),
+                    body=(note[:80] if note else
+                          f"Партнёр выбрал настроение {mood}")),
                 data={"type": "mood", "mood": mood},
                 android=messaging.AndroidConfig(
                     priority="high",
@@ -1048,16 +1049,26 @@ def push_unregister(body: PushTokenIn):
 @app.post("/mood")
 async def set_mood(body: MoodIn, background_tasks: BackgroundTasks):
     me, partner = couple_of(body.user_id)
+    mood = body.mood.strip()
+    note = body.note.replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not mood and note:
+        mood = "💬"
+    if not mood:
+        raise HTTPException(400, "mood or note is required")
+    if len(mood) > 32:
+        raise HTTPException(400, "mood is too long")
+    if len(note) > 120:
+        raise HTTPException(400, "mood message is too long")
     con = db()
     con.execute("INSERT INTO moods(user_id,mood,note,ts) VALUES(?,?,?,?)",
-                (body.user_id, body.mood, body.note,
+                (body.user_id, mood, note,
                  datetime.datetime.now().isoformat(timespec="seconds")))
     con.commit()
     con.close()
     await wsman.ping_couple(body.user_id, "mood")
     if partner:
         background_tasks.add_task(
-            send_mood_push, partner["id"], me["name"], body.mood)
+            send_mood_push, partner["id"], me["name"], mood, note)
     return {"ok": True}
 
 # ---------------- ежедневный вопрос ----------------
