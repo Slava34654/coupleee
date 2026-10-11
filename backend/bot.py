@@ -17,7 +17,8 @@ import os
 import socket
 import sqlite3
 import time
-import urllib.request
+
+import requests
 
 # На части VDS нет IPv6, а резолвер может отдавать Telegram только по AAAA.
 # Принудительно ходим по IPv4, чтобы long polling не падал с EHOSTUNREACH.
@@ -46,6 +47,7 @@ ADMIN_IDS = {int(x) for x in os.environ.get("ADMIN_TG_IDS", "").split(",") if x.
 REF_BONUS = int(os.environ.get("REF_BONUS_DAYS", "7"))
 APP_URL = os.environ.get("APP_PUBLIC_URL", "http://153.76.163.41:8000")
 ICON_URL = APP_URL.rstrip("/") + "/icons/icon-512.png"
+TELEGRAM_PROXY = os.environ.get("TELEGRAM_PROXY", "")
 
 _STATUS = {
     "running": False,
@@ -75,11 +77,10 @@ def db():
 
 def api(token, method, payload=None, timeout=65):
     url = API + token + "/" + method
-    data = json.dumps(payload).encode() if payload is not None else None
-    req = urllib.request.Request(
-        url, data=data, headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return json.loads(r.read().decode())
+    proxies = {"https": TELEGRAM_PROXY} if TELEGRAM_PROXY else None
+    response = requests.post(url, json=payload, proxies=proxies, timeout=timeout)
+    response.raise_for_status()
+    return response.json()
 
 
 def send(token, chat, text, buttons=None):
