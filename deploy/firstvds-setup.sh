@@ -33,6 +33,7 @@ WorkingDirectory=/opt/enrwine/repo
 Environment=COUPLE_DB=/opt/enrwine/data/couple.db
 Environment=PHOTO_DIR=/opt/enrwine/data/photos
 Environment=PORT=8000
+EnvironmentFile=-/etc/enrwine.env
 ExecStart=/opt/enrwine/venv/bin/uvicorn backend.main:app --host 0.0.0.0 --port 8000
 Restart=always
 RestartSec=3
