@@ -6,8 +6,9 @@
 Документация: http://127.0.0.1:8000/docs
 """
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, UploadFile, File, BackgroundTasks
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from typing import Optional
 from typing import Optional, List
@@ -26,6 +27,14 @@ import string
 
 DB = os.environ.get("COUPLE_DB", os.path.join(os.path.dirname(os.path.abspath(__file__)), "couple.db"))
 PHOTO_DIR = os.environ.get("PHOTO_DIR", os.path.join(os.path.dirname(os.path.abspath(__file__)), "photos"))
+S3_ENDPOINT = os.environ.get("S3_ENDPOINT", "").strip()
+S3_BUCKET = os.environ.get("S3_BUCKET", "").strip()
+S3_REGION = os.environ.get("S3_REGION", "").strip() or "us-east-1"
+S3_ACCESS_KEY_ID = os.environ.get("S3_ACCESS_KEY_ID", "").strip()
+S3_SECRET_ACCESS_KEY = os.environ.get("S3_SECRET_ACCESS_KEY", "").strip()
+S3_PHOTO_PREFIX = os.environ.get("S3_PHOTO_PREFIX", "photos/").strip("/") + "/"
+S3_URL_TTL = int(os.environ.get("S3_URL_TTL", "3600"))
+_s3 = None
 
 app = FastAPI(title="Enrwine API", version="1.0")
 
@@ -41,6 +50,33 @@ class AuthTokenMiddleware(BaseHTTPMiddleware):
 
 
 app.add_middleware(AuthTokenMiddleware)
+
+
+def s3_configured() -> bool:
+    return all((S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID,
+                S3_SECRET_ACCESS_KEY))
+
+
+def s3_client():
+    global _s3
+    if not s3_configured():
+        return None
+    if _s3 is None:
+        import boto3
+        from botocore.config import Config
+        _s3 = boto3.client(
+            "s3",
+            endpoint_url=S3_ENDPOINT,
+            region_name=S3_REGION,
+            aws_access_key_id=S3_ACCESS_KEY_ID,
+            aws_secret_access_key=S3_SECRET_ACCESS_KEY,
+            config=Config(signature_version="s3v4"),
+        )
+    return _s3
+
+
+def s3_photo_key(name: str) -> str:
+    return S3_PHOTO_PREFIX + os.path.basename(name)
 
 
 def new_token() -> str:
@@ -1497,8 +1533,29 @@ async def upload_photo(file: UploadFile = File(...)):
     os.makedirs(PHOTO_DIR, exist_ok=True)
     import uuid as _uuid
     name = _uuid.uuid4().hex + extension
-    with open(os.path.join(PHOTO_DIR, name), "wb") as f:
-        f.write(data)
+    client = s3_client()
+    if client is None:
+        with open(os.path.join(PHOTO_DIR, name), "wb") as f:
+            f.write(data)
+    else:
+        content_types = {
+            ".jpg": "image/jpeg",
+            ".png": "image/png",
+            ".gif": "image/gif",
+            ".webp": "image/webp",
+        }
+        try:
+            await run_in_threadpool(
+                client.put_object,
+                Bucket=S3_BUCKET,
+                Key=s3_photo_key(name),
+                Body=data,
+                ContentType=content_types[extension],
+                ServerSideEncryption="AES256",
+            )
+        except Exception as exc:
+            print(f"S3 upload failed: {type(exc).__name__}")
+            raise HTTPException(503, "photo storage unavailable")
     return {"url": f"/photos/{name}"}
 
 @app.get("/photos/{name}")
@@ -1506,9 +1563,30 @@ def get_photo(name: str):
     if not name.replace(".", "").replace("_", "").replace("-", "").isalnum() or "/" in name:
         raise HTTPException(400, "bad name")
     path = os.path.join(PHOTO_DIR, os.path.basename(name))
-    if not os.path.isfile(path):
+    if os.path.isfile(path):
+        return FileResponse(path)
+    client = s3_client()
+    if client is None:
         raise HTTPException(404, "not found")
-    return FileResponse(path)
+    url = client.generate_presigned_url(
+        "get_object",
+        Params={"Bucket": S3_BUCKET, "Key": s3_photo_key(name)},
+        ExpiresIn=S3_URL_TTL,
+    )
+    return RedirectResponse(url, status_code=307)
+
+
+@app.get("/health/storage", include_in_schema=False)
+def storage_health():
+    client = s3_client()
+    if client is None:
+        return {"configured": False, "mode": "local", "healthy": True}
+    try:
+        client.head_bucket(Bucket=S3_BUCKET)
+        return {"configured": True, "mode": "s3", "healthy": True}
+    except Exception as exc:
+        return {"configured": True, "mode": "s3", "healthy": False,
+                "error": type(exc).__name__}
 
 # ---------------- журнал ----------------
 @app.post("/journal")
