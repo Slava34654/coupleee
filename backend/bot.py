@@ -14,9 +14,24 @@ import datetime
 import json
 import logging
 import os
+import socket
 import sqlite3
 import time
 import urllib.request
+
+# На части VDS нет IPv6, а резолвер может отдавать Telegram только по AAAA.
+# Принудительно ходим по IPv4, чтобы long polling не падал с EHOSTUNREACH.
+_orig_getaddrinfo = socket.getaddrinfo
+
+
+def _ipv4_first_getaddrinfo(*args, **kwargs):
+    kwargs.pop("family", None)
+    infos = _orig_getaddrinfo(*args, **kwargs)
+    v4 = [i for i in infos if i[0] == socket.AF_INET]
+    return v4 + [i for i in infos if i[0] != socket.AF_INET]
+
+
+socket.getaddrinfo = _ipv4_first_getaddrinfo
 
 API = "https://api.telegram.org/bot"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -29,7 +44,7 @@ PAYMENT_URL = os.environ.get(
 )
 ADMIN_IDS = {int(x) for x in os.environ.get("ADMIN_TG_IDS", "").split(",") if x.strip().isdigit()}
 REF_BONUS = int(os.environ.get("REF_BONUS_DAYS", "7"))
-APP_URL = os.environ.get("APP_PUBLIC_URL", "https://ssssw-sladaqqq.amvera.io")
+APP_URL = os.environ.get("APP_PUBLIC_URL", "http://153.76.163.41:8000")
 ICON_URL = APP_URL.rstrip("/") + "/icons/icon-512.png"
 
 _STATUS = {
