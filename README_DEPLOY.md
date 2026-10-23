@@ -1,79 +1,61 @@
-# Enrwine в облаке — запуск на сервере (любой Wi-Fi / интернет)
+# Enrwine Production Deployment
 
-## Вариант 0 — Replit (бесплатно, БЕЗ карты, данные сохраняются)
+Production использует systemd, reverse proxy и отдельный каталог данных. Секреты хранятся вне репозитория в `/etc/enrwine.env`.
 
-Лучший бесплатный вариант без карты: файлы (база + фото) живут в проекте
-и не пропадают, WebSocket работает, HTTPS из коробки. Минусы: без
-активности засыпает (~5 мин) и просыпается 10–30 секунд при открытии.
+## FirstVDS
 
-1. Зарегистрируйся на https://github.com и https://replit.com
-   (на Replit удобно войти через GitHub).
-2. Создай пустой репозиторий на GitHub (без README), например `couplejoy`.
-3. Залей код (в своём терминале из папки `CoupleJoy`):
-   ```bash
-   git remote add origin https://github.com/ТВОЙ_НИК/couplejoy.git
-   git push -u origin main
-   ```
-4. На Replit: **Create → Import from GitHub** → вставь ссылку
-   `https://github.com/ТВОЙ_НИК/couplejoy` → Replit сам поставит
-   зависимости из `requirements.txt`.
-5. Нажми **Run**. Команда запуска уже прописана в файле `.replit`.
-   Адрес вида `https://couplejoy.твой-ник.repl.co` открой на телефоне —
-   он работает с любого интернета.
-6. Обновления: `git push` локально → на Replit **pull из GitHub**
-   (вкладка Version Control) → перезапусти Run.
-7. Чтобы меньше спал: бесплатный https://uptimerobot.com пингует адрес
-   каждые 5 минут и будит сервер.
+Скрипт `deploy/firstvds-setup.sh`:
 
-## Вариант 0.5 — Render.com (проще всего, но данные сбрасываются)
+- устанавливает Python и системные зависимости;
+- создаёт `/opt/enrwine/data/photos`;
+- устанавливает `backend/requirements.txt` в `/opt/enrwine/venv`;
+- запускает Alembic перед стартом Uvicorn;
+- слушает только `127.0.0.1:8000` за reverse proxy.
 
-Только для пробы, НЕ для постоянного использования парой!
+Перед первым запуском проверьте URL репозитория внутри скрипта. Затем на сервере:
 
-1. Залей код на GitHub (шаги 1–3 выше).
-2. На https://render.com → New → Blueprint → выбери репозиторий
-   (файл `render.yaml` уже на месте).
-3. Получишь адрес вида `https://couplejoy.onrender.com`.
-   ⚠️ Бесплатный Render без постоянного диска: после перезапуска
-   (а засыпает он часто) база и фото обнуляются.
+```bash
+sudo bash deploy/firstvds-setup.sh
+sudo systemctl status enrwine
+```
 
-После этого телефон открывает приложение **по обычной https-ссылке из любого
-интернета**, компьютер можно выключать. Данные (база + фото) живут на
-постоянном диске сервера.
+Для обновления:
 
-## Вариант 1 — Fly.io (рекомендую: бесплатно в лимите + постоянный диск)
+```bash
+git -C /opt/enrwine/repo pull
+/opt/enrwine/venv/bin/pip install -r /opt/enrwine/repo/backend/requirements.txt
+sudo systemctl restart enrwine
+```
 
-1. Зарегистрируйся на https://fly.io (понадобится карта для верификации,
-   деньги в бесплатном лимите не списываются).
-2. Установи flyctl:
-   - Windows (PowerShell): `pwsh -Command "iwr https://fly.io/install.ps1 -useb | iex"`
-3. Войди: `fly auth login`
-4. Из папки `CoupleJoy` выполни:
-   ```bash
-   fly launch --no-deploy          # подтверди имя couplejoy-app и регион fra
-   fly volumes create couple_data --size 1 --region fra
-   fly deploy
-   ```
-   Готово через пару минут. Адрес вида:
-   **https://couplejoy-app.fly.dev** ← открой его на телефоне.
-5. Обновления после изменений кода: снова `fly deploy` из той же папки.
+## Секреты
 
-Приложение засыпает без активности и просыпается за ~5 секунд при открытии —
-это нормально на бесплатном лимите. База и фото на диске `couple_data`
-не пропадают.
+Создайте `/etc/enrwine.env` с правами `600` или передайте значения окружением в `deploy/apply-secrets.sh`. Не размещайте значения в shell history, Git или документации.
 
-## Вариант 2 — Render.com (проще, но данные сбрасываются)
+```bash
+sudo chmod 600 /etc/enrwine.env
+sudo systemctl restart enrwine
+```
 
-1. Залей папку `CoupleJoy` в GitHub.
-2. На https://render.com → New → Blueprint → выбери репозиторий
-   (файл `render.yaml` уже на месте).
-3. Получишь адрес вида `https://couplejoy.onrender.com`.
-   ⚠️ Бесплатный Render без постоянного диска: после перезапуска база
-   и фото обнулятся. Для постоянного использования — Вариант 1.
+Список поддерживаемых переменных находится в `.env.example`.
 
-## Телефон (любой интернет)
+## Данные и backup
 
-1. Открой в Chrome публичный https-адрес.
-2. Создай пару / войди, добавь вторую половинку по коду.
-3. Chrome → ⋮ → **«Установить приложение»** — теперь это полноценное
-   приложение с иконкой: по HTTPS установка работает полностью,
-   включая офлайн-оболочку.
+Production-данные находятся вне checkout:
+
+- `/opt/enrwine/data/couple.db`
+- `/opt/enrwine/data/photos/`
+
+Перед миграцией создайте backup вне репозитория:
+
+```bash
+backup="/opt/enrwine/backup-$(date +%Y%m%d)"
+sudo mkdir -p "$backup"
+sudo cp /opt/enrwine/data/couple.db "$backup/"
+sudo cp -a /opt/enrwine/data/photos "$backup/"
+```
+
+## Docker и Fly.io
+
+`Dockerfile` устанавливает зависимости из `backend/requirements.txt`. Для Fly.io база и фотографии должны находиться на подключённом volume, пути задаются в `fly.toml`.
+
+Бесплатный Render не поддерживается: без постоянного диска SQLite и фотографии теряются при перезапуске.
