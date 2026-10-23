@@ -4,7 +4,7 @@ apt update
 apt install -y python3 python3-venv python3-pip git ufw curl
 ufw allow 22/tcp || true
 ufw allow 80/tcp || true
-ufw allow 8000/tcp || true
+ufw delete allow 8000/tcp || true
 ufw --force enable || true
 if ! swapon --show | grep -q /swapfile; then
   fallocate -l 2G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=2048
@@ -33,8 +33,10 @@ WorkingDirectory=/opt/enrwine/repo
 Environment=COUPLE_DB=/opt/enrwine/data/couple.db
 Environment=PHOTO_DIR=/opt/enrwine/data/photos
 Environment=PORT=8000
+Environment=FORWARDED_ALLOW_IPS=127.0.0.1
 EnvironmentFile=-/etc/enrwine.env
-ExecStart=/opt/enrwine/venv/bin/uvicorn backend.main:app --host 0.0.0.0 --port 8000
+ExecStartPre=/opt/enrwine/venv/bin/alembic -c /opt/enrwine/repo/backend/alembic.ini upgrade head
+ExecStart=/opt/enrwine/venv/bin/uvicorn backend.main:app --host 127.0.0.1 --port 8000 --proxy-headers --forwarded-allow-ips 127.0.0.1
 Restart=always
 RestartSec=3
 [Install]

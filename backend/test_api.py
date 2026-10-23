@@ -81,6 +81,7 @@ print("mood+streak OK")
 
 d = c.get("/daily", params={"user_id": A}).json()
 assert d["my_answer"] is None and d["partner_answer"] is None
+assert d["question"]["text_en"], d
 assert c.post("/daily/answer", json={"user_id": A, "text": "Наше первое кино"}).json() == {"ok": True}
 d = c.get("/daily", params={"user_id": A}).json()
 assert d["my_answer"] == "Наше первое кино" and d["partner_answer"] is None  # партнёр ещё не ответил
@@ -89,19 +90,56 @@ d = c.get("/daily", params={"user_id": A}).json()
 assert d["partner_answer"] == "Поездка на море", d
 print("daily OK:", d["question"]["text"][:40])
 
+categories = c.get("/quiz-categories").json()
+assert len(categories) == 10, categories
+assert all(q["subtopics"] == 10 and q["questions"] == 100 for q in categories), categories
+for category in categories:
+    subtopics = c.get(f"/quiz-categories/{category['id']}/subtopics").json()
+    assert subtopics["title"] == category["title"]
+    assert len(subtopics["subtopics"]) == 10
+    assert all(q["questions"] == 10 for q in subtopics["subtopics"])
 qs = c.get("/quizzes").json()
-assert len(qs) == 7, qs
+assert len(qs) == 100, len(qs)
+assert all(q["questions"] == 10 for q in qs), qs
 quiz = c.get(f"/quiz/{qs[0]['id']}", params={"user_id": A}).json()
-assert len(quiz["questions"]) == 5
+assert len(quiz["questions"]) == 10
 for i, qq in enumerate(quiz["questions"]):
     c.post(f"/quiz/{qs[0]['id']}/answer", json={"user_id": A, "qid": qq["id"], "option": 0})
-    c.post(f"/quiz/{qs[0]['id']}/answer", json={"user_id": B, "qid": qq["id"], "option": 0 if i < 3 else 1})
+    c.post(f"/quiz/{qs[0]['id']}/answer", json={"user_id": B, "qid": qq["id"], "option": 0 if i < 6 else 1})
 res = c.get(f"/quiz/{qs[0]['id']}/result", params={"user_id": A}).json()
 assert res["compatibility"] == 60, res
+assert qs[0]["id"] in c.get("/quiz-progress", params={"user_id": A}).json()["quiz_ids"]
+first_question_id = quiz["questions"][0]["id"]
+init_db()
+quiz_after_seed = c.get(f"/quiz/{qs[0]['id']}", params={"user_id": A}).json()
+assert len(quiz_after_seed["questions"]) == 10
+assert quiz_after_seed["questions"][0]["id"] == first_question_id
+assert c.get(f"/quiz/{qs[0]['id']}/result", params={"user_id": A}).json()["compatibility"] == 60
 print("quiz OK:", res)
 
 ideas = c.get("/ideas").json()
-assert len(ideas) == 12, len(ideas)
+assert len(ideas) == 18, len(ideas)
+assert {
+    (idea["title"], idea["category"], idea["budget"])
+    for idea in ideas
+} >= {
+    (
+        "Закат на самой высокой точке города",
+        "Прогулка / Романтика",
+        "Бесплатно",
+    ),
+    ("Рассвет на природе с кофе", "Прогулка / Романтика", "Дёшево"),
+    ("Форт из подушек и одеял", "Дома / Игривость", "Бесплатно"),
+    (
+        "Вечер воспоминаний: старые фото и видео",
+        "Дома / Романтика",
+        "Бесплатно",
+    ),
+    ("Письма друг другу «на будущее»", "Дома / Романтика", "Бесплатно"),
+    ("Рисуем портреты друг друга", "Творчество / Юмор", "Дёшево"),
+}
+init_db()
+assert len(c.get("/ideas").json()) == 18
 rnd = c.get("/idea/random").json()
 assert "title" in rnd
 nid = c.post("/ideas", json={"title": "Каток", "category": "Активный отдых"}).json()["id"]
@@ -112,6 +150,13 @@ jid = c.post("/journal", json={"user_id": A, "title": "Первый пост", "
 j = c.get("/journal", params={"user_id": B}).json()
 assert any(x["id"] == jid and x["author"] == "Алекс" for x in j)
 print("journal OK")
+
+activity = c.get("/activity", params={"user_id": B}).json()
+assert activity["partner_name"] == "Алекс", activity
+assert {x["type"] for x in activity["items"]} >= {"mood", "daily", "journal"}, activity
+assert "Наше первое кино" not in str(activity), activity  # скрытый ответ не попадает в ленту
+assert _raw_get("/activity", params={"user_id": B}).status_code == 401
+print("partner activity OK")
 
 import datetime
 d10 = (datetime.date.today() + datetime.timedelta(days=10)).isoformat()
@@ -262,14 +307,14 @@ r = c.post("/photos", params={"user_id": A}, files={"file": ("pic.png", png, "im
 assert r.status_code == 200, r.text
 url = r.json()["url"]
 assert url.startswith("/photos/") and url.endswith(".png"), url
-rj = c.get(url)
+rj = c.get(url, headers={"X-Auth-Token": TOK[A]})
 assert rj.status_code == 200 and rj.content[:8] == png[:8]
 r = c.post("/photos", params={"user_id": A}, files={"file": ("x.txt", b"hi", "text/plain")})
 assert r.status_code == 400
 r = c.post("/photos", params={"user_id": A}, files={"file": ("big.png", b"\x00" * (6 * 1024 * 1024), "image/png")})
 assert r.status_code == 400
 r = c.post("/photos", files={"file": ("pic.png", png, "image/png")})
-assert r.status_code in (401, 404), r.status_code  # загрузка без авторизации закрыта
+assert r.status_code == 401
 jid3 = c.post("/journal", json={"user_id": A, "title": "С фото",
                                 "text": "смотри", "photo": url}).json()["id"]
 lst = c.get("/journal", params={"user_id": A}).json()

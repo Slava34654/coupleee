@@ -5,6 +5,7 @@
 #   FIREBASE_SERVICE_ACCOUNT_BASE64='...'  (или FIREBASE_SERVICE_ACCOUNT_JSON='...')
 #   S3_ENDPOINT='https://s3.example.com' S3_BUCKET='bucket' S3_REGION='region'
 #   S3_ACCESS_KEY_ID='...' S3_SECRET_ACCESS_KEY='...'
+#   TMDB_BEARER_TOKEN='...'
 #   bash apply-secrets.sh
 set -e
 ENV=/etc/enrwine.env
@@ -25,6 +26,8 @@ set_var S3_BUCKET "$S3_BUCKET"
 set_var S3_REGION "$S3_REGION"
 set_var S3_ACCESS_KEY_ID "$S3_ACCESS_KEY_ID"
 set_var S3_SECRET_ACCESS_KEY "$S3_SECRET_ACCESS_KEY"
+set_var TMDB_API_KEY "$TMDB_API_KEY"
+set_var TMDB_BEARER_TOKEN "$TMDB_BEARER_TOKEN"
 mkdir -p /etc/systemd/system/enrwine.service.d
 printf '[Service]\nEnvironmentFile=/etc/enrwine.env\n' > /etc/systemd/system/enrwine.service.d/secrets.conf
 systemctl daemon-reload
