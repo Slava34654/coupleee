@@ -92,6 +92,11 @@ class EventIn(BaseModel):
     repeat: bool = False
 
 
+class TogetherIn(BaseModel):
+    user_id: int
+    date: str
+
+
 class WishlistIn(BaseModel):
     user_id: int
     title: str
