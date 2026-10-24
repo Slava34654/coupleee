@@ -2321,50 +2321,14 @@ async def pack_answer(pid: int, body: PackAnswerIn):
 
 
 # ---------------- идеи свиданий ----------------
-@app.get("/ideas")
-def ideas(category: str = "", budget: str = ""):
-    con = db()
-    q, args = "SELECT * FROM ideas WHERE 1=1", []
-    if category:
-        q += " AND category=?"
-        args.append(category)
-    if budget:
-        q += " AND budget=?"
-        args.append(budget)
-    rows = con.execute(q, args).fetchall()
-    con.close()
-    return [dict(r) for r in rows]
+try:
+    from backend.routers.ideas import create_routers as create_idea_routers
+except ImportError:
+    from routers.ideas import create_routers as create_idea_routers
 
-
-@app.get("/idea/random")
-def idea_random():
-    con = db()
-    rows = con.execute("SELECT * FROM ideas WHERE done=0").fetchall()
-    con.close()
-    if not rows:
-        raise HTTPException(404, "no ideas left")
-    return dict(random.choice(rows))
-
-
-@protected.post("/ideas")
-async def idea_add(body: IdeaIn):
-    con = db()
-    cur = con.execute(
-        "INSERT INTO ideas(title,category,budget) VALUES(?,?,?)",
-        (body.title, body.category, body.budget),
-    )
-    con.commit()
-    con.close()
-    return {"id": cur.lastrowid}
-
-
-@protected.post("/idea/{iid}/done")
-async def idea_done(iid: int, done: bool = True):
-    con = db()
-    con.execute("UPDATE ideas SET done=? WHERE id=?", (1 if done else 0, iid))
-    con.commit()
-    con.close()
-    return {"ok": True}
+idea_public_router, idea_protected_router = create_idea_routers(db, current_user)
+app.include_router(idea_public_router)
+app.include_router(idea_protected_router)
 
 
 # ---------------- фото ----------------
