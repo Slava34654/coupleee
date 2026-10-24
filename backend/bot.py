@@ -23,6 +23,11 @@ import time
 
 import requests
 
+try:
+    from backend.time_utils import utc_iso, utc_today
+except ImportError:
+    from time_utils import utc_iso, utc_today
+
 # На части VDS нет IPv6, а резолвер может отдавать Telegram только по AAAA.
 # Принудительно ходим по IPv4, чтобы long polling не падал с EHOSTUNREACH.
 _orig_getaddrinfo = socket.getaddrinfo
@@ -228,7 +233,7 @@ def grant_premium(user_id, days=PREMIUM_DAYS):
         cur = datetime.date.fromisoformat(row["premium_until"])
     except (ValueError, TypeError):
         cur = None
-    start = max(datetime.date.today(), cur) if cur else datetime.date.today()
+    start = max(utc_today(), cur) if cur else utc_today()
     until = (start + datetime.timedelta(days=days)).isoformat()
     con.execute("UPDATE users SET premium_until=? WHERE id=?",
                 (until, user_id))
@@ -248,7 +253,7 @@ def link_email(tg_id, tg_name, email):
         con.close()
         return False, "Аккаунт с такой почтой не найден. Проверь адрес и отправь ещё раз.", None
     uid = user["id"]
-    now = datetime.datetime.now().isoformat(timespec="seconds")
+    now = utc_iso()
     con.execute("DELETE FROM tg WHERE tg_id=? AND user_id!=?", (tg_id, uid))
     con.execute(
         "INSERT INTO tg(user_id,tg_id,tg_name,ts) VALUES(?,?,?,?) "
@@ -313,7 +318,7 @@ def activate_stars_payment(tg_id, payment):
     if uid is None or plan is None or not charge_id:
         return None, False
     con = db()
-    now = datetime.datetime.now().isoformat(timespec="seconds")
+    now = utc_iso()
     inserted = con.execute(
         "INSERT OR IGNORE INTO tg_payments("
         "charge_id,provider_charge_id,user_id,tg_id,currency,total_amount,payload,ts) "
@@ -329,7 +334,7 @@ def activate_stars_payment(tg_id, payment):
         current = datetime.date.fromisoformat(row["premium_until"])
     except (ValueError, TypeError):
         current = None
-    start = max(datetime.date.today(), current) if current else datetime.date.today()
+    start = max(utc_today(), current) if current else utc_today()
     until = (start + datetime.timedelta(days=plan["days"])).isoformat()
     con.execute("UPDATE users SET premium_until=? WHERE id=?", (until, uid))
     con.commit()
@@ -355,7 +360,7 @@ def record_ref(tg_id, referrer_uid):
     if con.execute("SELECT 1 FROM refs WHERE tg_id=?", (tg_id,)).fetchone():
         con.close()
         return "already"
-    now = datetime.datetime.now().isoformat(timespec="seconds")
+    now = utc_iso()
     con.execute("INSERT INTO refs(tg_id,referrer,ts) VALUES(?,?,?)",
                 (tg_id, referrer_uid, now))
     con.commit()
@@ -371,7 +376,7 @@ def create_referral_reward(payer_tg_id, payer_uid):
     if not r:
         con.close()
         return None
-    now = datetime.datetime.now().isoformat(timespec="seconds")
+    now = utc_iso()
     inserted = con.execute(
         "INSERT OR IGNORE INTO referral_rewards("
         "referred_tg_id,referrer_user_id,referred_user_id,created_at) "
@@ -406,7 +411,7 @@ def choose_referral_reward(user_id, reward_id, choice):
     if not reward or reward["status"] != "awaiting_choice":
         con.close()
         return None
-    now = datetime.datetime.now().isoformat(timespec="seconds")
+    now = utc_iso()
     if choice == "cash":
         con.execute(
             "UPDATE referral_rewards SET choice='cash',status='available',chosen_at=? "
@@ -421,7 +426,7 @@ def choose_referral_reward(user_id, reward_id, choice):
             current = datetime.date.fromisoformat(row["premium_until"])
         except (ValueError, TypeError):
             current = None
-        start = max(datetime.date.today(), current) if current else datetime.date.today()
+        start = max(utc_today(), current) if current else utc_today()
         until = (start + datetime.timedelta(days=reward["bonus_days"])).isoformat()
         con.execute("UPDATE users SET premium_until=? WHERE id=?", (until, user_id))
         con.execute(
@@ -453,7 +458,7 @@ def choose_referral_rewards(user_id, choice, count):
         ).fetchone()["n"]
         con.close()
         return None, f"Можно выбрать от 1 до {available}."
-    now = datetime.datetime.now().isoformat(timespec="seconds")
+    now = utc_iso()
     ids = [reward["id"] for reward in rewards]
     placeholders = ",".join("?" for _ in ids)
     if choice == "cash":
@@ -473,7 +478,7 @@ def choose_referral_rewards(user_id, choice, count):
         except (ValueError, TypeError):
             current = None
         days = sum(reward["bonus_days"] for reward in rewards)
-        start = max(datetime.date.today(), current) if current else datetime.date.today()
+        start = max(utc_today(), current) if current else utc_today()
         until = (start + datetime.timedelta(days=days)).isoformat()
         con.execute("UPDATE users SET premium_until=? WHERE id=?", (until, user_id))
         con.execute(
@@ -527,7 +532,7 @@ def create_referral_payout(user_id, recipient):
         con.close()
         return None, "Сейчас нет доступных денежных наград."
     amount = sum(row["amount_rub"] for row in rewards)
-    now = datetime.datetime.now().isoformat(timespec="seconds")
+    now = utc_iso()
     cursor = con.execute(
         "INSERT INTO referral_payouts(user_id,amount_rub,recipient,created_at) "
         "VALUES(?,?,?,?)", (user_id, amount, recipient, now)
@@ -656,7 +661,7 @@ def admin_finish_payout(payout_id, paid=True, note=""):
     if not payout or payout["status"] != "pending":
         con.close()
         return None
-    now = datetime.datetime.now().isoformat(timespec="seconds")
+    now = utc_iso()
     status = "paid" if paid else "rejected"
     con.execute(
         "UPDATE referral_payouts SET status=?,paid_at=?,admin_note=? WHERE id=?",
@@ -728,7 +733,7 @@ def admin_users():
     rows = con.execute(
         "SELECT id, name, email, premium_until FROM users ORDER BY id DESC LIMIT 10").fetchall()
     con.close()
-    today = datetime.date.today().isoformat()
+    today = utc_today().isoformat()
     lines = []
     for r in rows:
         mark = "💫" if r["premium_until"] and r["premium_until"] >= today else "–"
@@ -758,7 +763,7 @@ def admin_user(key):
     con.close()
     untils = [x for x in (
         user["premium_until"], partner["premium_until"] if partner else ""
-    ) if x and x >= datetime.date.today().isoformat()]
+    ) if x and x >= utc_today().isoformat()]
     pair_until = max(untils, default="не активен")
     account = safe(user["email"]) if user["email"] else "не указана"
     partner_text = (f"{safe(partner['name'])} (id {partner['id']})"
@@ -776,7 +781,7 @@ def admin_user(key):
 
 def admin_subscribers():
     con = db()
-    today = datetime.date.today().isoformat()
+    today = utc_today().isoformat()
     rows = con.execute(
         "SELECT u.id,u.name,u.email,u.premium_until,p.name partner_name "
         "FROM users u LEFT JOIN users p ON p.id=u.partner_id "
@@ -819,7 +824,7 @@ def admin_payments(limit=10):
 def admin_stats():
     con = db()
     users = con.execute("SELECT COUNT(*) n FROM users").fetchone()["n"]
-    today = datetime.date.today().isoformat()
+    today = utc_today().isoformat()
     rows = con.execute("SELECT id,partner_id,premium_until FROM users").fetchall()
     premium_owners = {r["id"] for r in rows
                       if r["premium_until"] and r["premium_until"] >= today}
@@ -1069,7 +1074,7 @@ def handle_message(token, m):
             return
         until = premium_until(uid) or ""
         try:
-            active = bool(until) and datetime.date.fromisoformat(until) >= datetime.date.today()
+            active = bool(until) and datetime.date.fromisoformat(until) >= utc_today()
         except ValueError:
             active = False
         send(token, chat,
@@ -1191,8 +1196,7 @@ def run_bot(token):
                        {"offset": offset, "timeout": 50, "allowed_updates":
                         ["message", "callback_query", "pre_checkout_query"]}, timeout=70)
             _STATUS["healthy"] = True
-            _STATUS["last_poll"] = datetime.datetime.now(
-                datetime.timezone.utc).isoformat(timespec="seconds")
+            _STATUS["last_poll"] = utc_iso()
             _STATUS["last_error"] = None
         except Exception as exc:
             _record_error(exc)

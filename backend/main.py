@@ -64,8 +64,10 @@ except ImportError:
     from companion_games import buy_food as companion_buy_food
 try:
     from backend.database import upgrade_database
+    from backend.time_utils import parse_utc, unix_ms, utc_iso, utc_now, utc_today
 except ImportError:
     from database import upgrade_database
+    from time_utils import parse_utc, unix_ms, utc_iso, utc_now, utc_today
 DB = os.environ.get(
     "COUPLE_DB", os.path.join(os.path.dirname(os.path.abspath(__file__)), "couple.db")
 )
@@ -118,7 +120,29 @@ class AuthTokenMiddleware(BaseHTTPMiddleware):
         token_context = _request_token.set(request.headers.get("x-auth-token", ""))
         user_context = _request_user.set(None)
         try:
-            return await call_next(request)
+            response = await call_next(request)
+            response.headers.setdefault("X-Content-Type-Options", "nosniff")
+            response.headers.setdefault("X-Frame-Options", "DENY")
+            response.headers.setdefault("Referrer-Policy", "no-referrer")
+            response.headers.setdefault(
+                "Permissions-Policy", "camera=(), microphone=(), geolocation=()"
+            )
+            response.headers.setdefault("Cross-Origin-Resource-Policy", "same-origin")
+            content_type = response.headers.get("content-type", "")
+            if content_type.startswith("application/json"):
+                response.headers.setdefault("Cache-Control", "no-store")
+                response.headers.setdefault(
+                    "Content-Security-Policy",
+                    "default-src 'none'; frame-ancestors 'none'",
+                )
+            forwarded_proto = request.headers.get("x-forwarded-proto", "")
+            scheme = forwarded_proto.split(",", 1)[0].strip() or request.url.scheme
+            if scheme.lower() == "https":
+                response.headers.setdefault(
+                    "Strict-Transport-Security",
+                    "max-age=31536000; includeSubDomains",
+                )
+            return response
         finally:
             _request_user.reset(user_context)
             _request_token.reset(token_context)
@@ -160,10 +184,6 @@ def new_token() -> str:
 
 def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
-
-
-def unix_ms() -> int:
-    return time.time_ns() // 1_000_000
 
 
 # ---------------- seed-данные ----------------
@@ -2349,7 +2369,7 @@ async def ws_ep(ws: WebSocket):
 
 
 def today():
-    return datetime.date.today().isoformat()
+    return utc_today().isoformat()
 
 
 SQL_IDENTIFIER_ALLOWLIST = frozenset(
@@ -2434,7 +2454,7 @@ def user_for_token(token: str):
     con.close()
     if not user:
         raise HTTPException(401, "unauthorized")
-    now_ms = int(datetime.datetime.now().timestamp() * 1000)
+    now_ms = unix_ms()
     if not user["token_expires_at"] or int(user["token_expires_at"]) <= now_ms:
         raise HTTPException(401, "token expired")
     return user
@@ -2536,7 +2556,7 @@ def touch_streak_days(user_id: int) -> int:
 
     days = activity_days(user_id) & activity_days(pid)
     con.close()
-    d = datetime.date.today()
+    d = utc_today()
     if d.isoformat() not in days:
         d -= datetime.timedelta(days=1)
         if d.isoformat() not in days:
@@ -2921,7 +2941,7 @@ def check_birth(birth: str) -> str:
         bd = datetime.date.fromisoformat(birth)
     except ValueError:
         raise HTTPException(400, "birth must be YYYY-MM-DD")
-    if not (datetime.date(1900, 1, 1) <= bd <= datetime.date.today()):
+    if not (datetime.date(1900, 1, 1) <= bd <= utc_today()):
         raise HTTPException(400, "bad birth date")
     return birth
 
@@ -2930,7 +2950,7 @@ def age_of(birth: str):
     if not birth:
         return None
     b = datetime.date.fromisoformat(birth)
-    t = datetime.date.today()
+    t = utc_today()
     return t.year - b.year - ((t.month, t.day) < (b.month, b.day))
 
 
@@ -2940,7 +2960,7 @@ def check_since(since: str) -> str:
         d = datetime.date.fromisoformat(since)
     except ValueError:
         raise HTTPException(400, "since must be YYYY-MM-DD")
-    if not (datetime.date(1900, 1, 1) <= d <= datetime.date.today()):
+    if not (datetime.date(1900, 1, 1) <= d <= utc_today()):
         raise HTTPException(400, "bad since date")
     return since
 
@@ -2954,7 +2974,7 @@ async def auth_register(body: AuthRegisterIn):
         if con.execute("SELECT 1 FROM users WHERE email=?", (email,)).fetchone():
             raise HTTPException(409, "email already registered")
         token = new_token()
-        now_ms = int(datetime.datetime.now().timestamp() * 1000)
+        now_ms = unix_ms()
         expires_at = now_ms + TOKEN_TTL_MS
         cur = con.execute(
             "INSERT INTO users(name,pair_code,together_since,birth,avatar,token,token_hash,token_expires_at,email,password_hash,pair_ready) "
@@ -2989,7 +3009,7 @@ async def auth_register(body: AuthRegisterIn):
 @app.post("/auth/login")
 def auth_login(body: AuthLoginIn, request: Request):
     email = normalize_email(body.email)
-    now_ms = int(datetime.datetime.now().timestamp() * 1000)
+    now_ms = unix_ms()
     keys = login_limit_keys(request, email)
     retry_after = login_retry_after(keys, now_ms)
     if retry_after:
@@ -3359,7 +3379,7 @@ def pair_create(body: PairIn):
     con = db()
     code = new_code()
     tok = new_token()
-    expires_at = int(datetime.datetime.now().timestamp() * 1000) + TOKEN_TTL_MS
+    expires_at = unix_ms() + TOKEN_TTL_MS
     cur = con.execute(
         "INSERT INTO users(name,pair_code,together_since,birth,avatar,token,token_hash,token_expires_at) "
         "VALUES(?,?,?,?,?,'',?,?)",
@@ -3395,7 +3415,7 @@ async def pair_join(body: JoinIn):
         con.close()
         raise HTTPException(400, "code already used")
     tok = new_token()
-    expires_at = int(datetime.datetime.now().timestamp() * 1000) + TOKEN_TTL_MS
+    expires_at = unix_ms() + TOKEN_TTL_MS
     cur = con.execute(
         "INSERT INTO users(name,pair_code,together_since,birth,avatar,token,token_hash,token_expires_at) "
         "VALUES(?,?,?,?,?,'',?,?)",
@@ -3423,7 +3443,7 @@ async def pair_join(body: JoinIn):
 def me(user_id: int):
     me, partner = couple_of(user_id)
     since = datetime.date.fromisoformat(me["together_since"])
-    days = (datetime.date.today() - since).days
+    days = (utc_today() - since).days
     mine = None
     con = db()
     r = con.execute(
@@ -3501,7 +3521,7 @@ def partner_profile(user_id: int):
         "birth": partner["birth"] or "",
         "age": age_of(partner["birth"] or ""),
         "days_together": (
-            datetime.date.today() - datetime.date.fromisoformat(me["together_since"])
+            utc_today() - datetime.date.fromisoformat(me["together_since"])
         ).days,
         "latest_mood": dict(mood) if mood else None,
         "answers": answers,
@@ -3677,7 +3697,7 @@ def push_register(body: PushTokenIn):
             token,
             body.user_id,
             platform,
-            datetime.datetime.now().isoformat(timespec="seconds"),
+            utc_iso(),
         ),
     )
     con.commit()
@@ -3719,7 +3739,7 @@ async def set_mood(body: MoodIn, background_tasks: BackgroundTasks):
             body.user_id,
             mood,
             note,
-            datetime.datetime.now().isoformat(timespec="seconds"),
+            utc_iso(),
         ),
     )
     con.commit()
@@ -3732,7 +3752,7 @@ async def set_mood(body: MoodIn, background_tasks: BackgroundTasks):
 
 # ---------------- ежедневный вопрос ----------------
 def daily_question():
-    idx = datetime.date.today().toordinal() % len(QUESTIONS)
+    idx = utc_today().toordinal() % len(QUESTIONS)
     text_en = QUESTIONS_EN[idx] if idx < len(QUESTIONS_EN) else QUESTIONS[idx]
     return {"date": today(), "index": idx, "text": QUESTIONS[idx], "text_en": text_en}
 
@@ -3776,7 +3796,7 @@ def companion_daily_answer(user_id: int, answer: str):
             (
                 json.dumps(state, ensure_ascii=False),
                 companion["version"] + 1,
-                datetime.datetime.now().isoformat(timespec="seconds"),
+                utc_iso(),
                 pair_key,
             ),
         )
@@ -3829,7 +3849,7 @@ async def answer_daily(body: AnswerIn, background_tasks: BackgroundTasks):
             dq["date"],
             dq["index"],
             body.text,
-            datetime.datetime.now().isoformat(timespec="seconds"),
+            utc_iso(),
         ),
     )
     con.commit()
@@ -4083,7 +4103,7 @@ async def widget_send(body: WidgetIn, background_tasks: BackgroundTasks):
     me, partner = couple_of(body.user_id)
     if not body.photo:
         raise HTTPException(400, "empty photo")
-    now = datetime.datetime.now().isoformat(timespec="seconds")
+    now = utc_iso()
     con = db()
     con.execute(
         "INSERT INTO widget_photos(user_id,photo,caption,ts) VALUES(?,?,?,?)",
@@ -4178,7 +4198,7 @@ async def pair_leave(user_id: int):
 @protected.post("/tap")
 async def tap(body: TapIn):
     couple_of(body.user_id)
-    now = datetime.datetime.now().isoformat(timespec="seconds")
+    now = utc_iso()
     con = db()
     con.execute("INSERT INTO taps(user_id,ts) VALUES(?,?)", (body.user_id, now))
     con.commit()
@@ -4234,10 +4254,7 @@ def moods_feed(user_id: int):
 # ---------------- активность партнёра ----------------
 def timestamp_with_timezone(value: str) -> str:
     try:
-        parsed = datetime.datetime.fromisoformat(value)
-        if parsed.tzinfo is None:
-            parsed = parsed.astimezone()
-        return parsed.isoformat(timespec="seconds")
+        return parse_utc(value).isoformat(timespec="seconds").replace("+00:00", "Z")
     except (TypeError, ValueError):
         return value
 
@@ -4390,7 +4407,7 @@ def stats(user_id: int):
     con.close()
     return {
         "days_together": (
-            datetime.date.today() - datetime.date.fromisoformat(me["together_since"])
+            utc_today() - datetime.date.fromisoformat(me["together_since"])
         ).days,
         "streak": touch_streak_days(user_id),
         "answers": answers,
@@ -4525,7 +4542,7 @@ async def pack_answer(pid: int, body: PackAnswerIn):
             body.qid,
             body.text,
             body.photo,
-            datetime.datetime.now().isoformat(timespec="seconds"),
+            utc_iso(),
         ),
     )
     con.commit()
@@ -4662,7 +4679,7 @@ def apply_photo_upload_limit(
 def create_photo_upload_token(request: Request):
     user = authenticated_user()
     now_ms = unix_ms()
-    today_utc = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+    today_utc = utc_today().isoformat()
     client_ip = request.client.host if request.client else "unknown"
     raw_token = secrets.token_urlsafe(32)
     con = db()
@@ -4835,7 +4852,7 @@ async def upload_photo(request: Request, file: UploadFile = File(...)):
         ).fetchone()[0]
         if int(used_bytes) + size_bytes > PHOTO_USER_QUOTA_BYTES:
             raise HTTPException(413, "photo storage quota exceeded")
-        today_utc = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+        today_utc = utc_today().isoformat()
         usage = con.execute(
             "SELECT day_utc,day_uploaded_bytes FROM photo_upload_usage WHERE user_id=?",
             (user["id"],),
@@ -4852,7 +4869,7 @@ async def upload_photo(request: Request, file: UploadFile = File(...)):
             (
                 name,
                 user["id"],
-                datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+                utc_iso(),
                 size_bytes,
             ),
         )
@@ -4942,7 +4959,7 @@ async def journal_add(body: JournalIn):
             body.title,
             body.text,
             body.photo,
-            datetime.datetime.now().isoformat(timespec="seconds"),
+            utc_iso(),
         ),
     )
     con.commit()
@@ -5094,7 +5111,7 @@ def events(user_id: int):
     con = db()
     rows = con.execute(f"SELECT * FROM events WHERE user_id IN ({q})", ids).fetchall()
     con.close()
-    now = datetime.date.today()
+    now = utc_today()
     out = []
     for r in rows:
         base = datetime.date.fromisoformat(r["date"])
@@ -5188,7 +5205,7 @@ async def wishlist_add(body: WishlistIn):
     photo = body.photo.strip()
     if len(photo) > 2000:
         raise HTTPException(400, "photo URL is too long")
-    created_at = datetime.datetime.now().isoformat(timespec="seconds")
+    created_at = utc_iso()
     con = db()
     cur = con.execute(
         "INSERT INTO wishlist(pair_key,author_id,title,photo,created_at) VALUES(?,?,?,?,?)",
@@ -5211,7 +5228,7 @@ async def wishlist_done(item_id: int, body: WishlistDoneIn):
         con.close()
         raise HTTPException(404, "wishlist item not found")
     completed_at = (
-        datetime.datetime.now().isoformat(timespec="seconds") if body.done else ""
+        utc_iso() if body.done else ""
     )
     con.execute(
         "UPDATE wishlist SET done=?,completed_at=? WHERE id=?",
@@ -5255,10 +5272,10 @@ def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 def minutes_ago(ts: str) -> Optional[int]:
     try:
-        then = datetime.datetime.fromisoformat(ts)
+        then = parse_utc(ts)
     except ValueError:
         return None
-    return max(0, int((datetime.datetime.now() - then).total_seconds() // 60))
+    return max(0, int((utc_now() - then).total_seconds() // 60))
 
 
 def exact_location_transport_is_secure(request: Request) -> bool:
@@ -5282,7 +5299,7 @@ async def location_set(body: LocationIn, request: Request):
         or not (-90 <= body.lat <= 90 and -180 <= body.lon <= 180)
     ):
         raise HTTPException(400, "bad coordinates")
-    now = datetime.datetime.now().isoformat(timespec="seconds")
+    now = utc_iso()
     con = db()
     con.execute(
         "INSERT OR REPLACE INTO locations(user_id,lat,lon,ts) VALUES(?,?,?,?)",
@@ -5320,7 +5337,7 @@ def exact_widget_consent_grant(body: ExactWidgetConsentIn, request: Request):
     _, partner = couple_of(body.user_id)
     if partner is None or partner["partner_id"] != body.user_id:
         raise HTTPException(409, "reciprocal partner required")
-    now = datetime.datetime.now().isoformat(timespec="seconds")
+    now = utc_iso()
     con = db()
     con.execute(
         "INSERT OR REPLACE INTO exact_widget_shares("
@@ -5432,7 +5449,7 @@ def premium_active(premium_until: str) -> bool:
     try:
         return (
             bool(premium_until)
-            and datetime.date.fromisoformat(premium_until) >= datetime.date.today()
+            and datetime.date.fromisoformat(premium_until) >= utc_today()
         )
     except ValueError:
         return False
@@ -5478,7 +5495,7 @@ async def together_set(body: TogetherIn):
     con.commit()
     con.close()
     await wsman.ping_couple(body.user_id, "pair")
-    days = (datetime.date.today() - datetime.date.fromisoformat(date)).days
+    days = (utc_today() - datetime.date.fromisoformat(date)).days
     return {"date": date, "days": days}
 
 
@@ -5700,7 +5717,7 @@ def companion_response(
 ):
     state = dict(state)
     state["playground"] = companion_game_view(
-        state, user_id, companion_day(int(datetime.datetime.now().timestamp() * 1000)),
+        state, user_id, companion_day(unix_ms()),
     )
     proposal = None
     if row and row["proposal_type"]:
@@ -5729,7 +5746,7 @@ def companion_get(user_id: int):
     con.close()
     state = (
         companion_advance(
-            json.loads(row["state"]), int(datetime.datetime.now().timestamp() * 1000)
+            json.loads(row["state"]), unix_ms()
         )
         if row
         else fresh_companion()
@@ -5757,7 +5774,7 @@ async def companion_propose(body: CompanionProposalIn):
         con.close()
         raise HTTPException(409, "companion already adopted")
     version = (row["version"] if row else 0) + 1
-    now = datetime.datetime.now().isoformat(timespec="seconds")
+    now = utc_iso()
     con.execute(
         "INSERT OR REPLACE INTO companions(pair_key,state,proposal_type,proposal_name,proposed_by,version,updated_at) VALUES(?,?,?,?,?,?,?)",
         (pair_key, json.dumps(state), pet_type, name, body.user_id, version, now),
@@ -5789,7 +5806,7 @@ async def companion_confirm(body: CompanionUserIn):
         con.rollback()
         con.close()
         raise HTTPException(409, "partner must confirm the proposal")
-    now_ms = int(datetime.datetime.now().timestamp() * 1000)
+    now_ms = unix_ms()
     state = fresh_companion()
     state.update(
         {
@@ -5805,7 +5822,7 @@ async def companion_confirm(body: CompanionUserIn):
         (
             json.dumps(state),
             version,
-            datetime.datetime.now().isoformat(timespec="seconds"),
+            utc_iso(),
             pair_key,
         ),
     )
@@ -5840,7 +5857,7 @@ async def companion_action(body: CompanionActionIn):
         con.close()
         raise HTTPException(409, "choose a companion first")
     message, animation = "", "idle"
-    now_ms = int(datetime.datetime.now().timestamp() * 1000)
+    now_ms = unix_ms()
     if body.action in ("feed", "play", "wash", "love", "sleep"):
         state, message, animation = companion_care(state, body.action, now_ms)
         if animation not in ("idle", "sleep"):
@@ -5930,7 +5947,7 @@ async def companion_action(body: CompanionActionIn):
         (
             json.dumps(state),
             version,
-            datetime.datetime.now().isoformat(timespec="seconds"),
+            utc_iso(),
             pair_key,
         ),
     )
@@ -6042,7 +6059,7 @@ def game_get(kind: str, user_id: int):
                 kind,
                 json.dumps(state),
                 version,
-                datetime.datetime.now().isoformat(timespec="seconds"),
+                utc_iso(),
             ),
         )
         con.commit()
@@ -6146,7 +6163,7 @@ async def game_action(kind: str, body: GameActionIn):
             kind,
             json.dumps(state),
             version,
-            datetime.datetime.now().isoformat(timespec="seconds"),
+            utc_iso(),
         ),
     )
     con.commit()
@@ -6304,7 +6321,7 @@ def community_map_upsert(body: CommunityMapPostIn):
         raise HTTPException(400, "comment contains control characters")
     if not body.public_consent:
         raise HTTPException(400, "public consent is required")
-    now = datetime.datetime.now().isoformat(timespec="seconds")
+    now = utc_iso()
     low_approved = 1 if me["id"] == low else 0
     high_approved = 1 if me["id"] == high else 0
     con = db()
@@ -6387,7 +6404,7 @@ def community_map_approve(post_id: int, body: CommunityMapUserIn):
         row = community_map_post_row(con, post_id, body.user_id)
         if not row or (row["pair_low_id"], row["pair_high_id"]) != (low, high):
             raise HTTPException(404, "map post not found")
-        now = datetime.datetime.now().isoformat(timespec="seconds")
+        now = utc_iso()
         if me["id"] == low:
             con.execute(
                 "UPDATE community_map_posts SET low_approved=1,updated_at=? WHERE id=?",
@@ -6442,7 +6459,7 @@ def community_map_report(post_id: int, body: CommunityMapReportIn):
         row = community_map_public_post_row(con, post_id)
         if not row or body.user_id in (row["pair_low_id"], row["pair_high_id"]):
             raise HTTPException(404, "published map post not found")
-        now = datetime.datetime.now().isoformat(timespec="seconds")
+        now = utc_iso()
         con.execute(
             "INSERT OR IGNORE INTO community_map_reports("
             "post_id,reporter_user_id,reason,created_at) VALUES(?,?,?,?)",
@@ -6481,7 +6498,7 @@ def community_map_like(post_id: int, body: CommunityMapLikeIn):
                 (
                     post_id,
                     body.user_id,
-                    datetime.datetime.now().isoformat(timespec="seconds"),
+                    utc_iso(),
                 ),
             )
         else:
@@ -6546,7 +6563,7 @@ def community_map_comment_add(post_id: int, body: CommunityMapCommentIn):
         ).fetchone()["n"]
         if count >= 20:
             raise HTTPException(409, "comment limit reached")
-        now = datetime.datetime.now().isoformat(timespec="seconds")
+        now = utc_iso()
         comment_id = con.execute(
             "INSERT INTO community_map_comments(post_id,author_user_id,text,created_at) "
             "VALUES(?,?,?,?)",
@@ -6624,7 +6641,7 @@ def community_map_comment_report(
             or body.user_id in (post["pair_low_id"], post["pair_high_id"])
         ):
             raise HTTPException(404, "comment not found")
-        now = datetime.datetime.now().isoformat(timespec="seconds")
+        now = utc_iso()
         con.execute(
             "INSERT OR IGNORE INTO community_map_comment_reports("
             "comment_id,reporter_user_id,reason,created_at) VALUES(?,?,?,?)",
@@ -6751,7 +6768,7 @@ def movie_latest_round(con, low: int, high: int, create: bool = True):
         (low, high),
     ).fetchone()
     if not row and create:
-        now = datetime.datetime.now().isoformat(timespec="seconds")
+        now = utc_iso()
         round_id = con.execute(
             "INSERT INTO movie_rounds(pair_low_id,pair_high_id,status,created_at) "
             "VALUES(?,?,'active',?)",
@@ -6881,7 +6898,7 @@ async def movies_swipe(body: MovieSwipeIn):
         )
         if not current or current["id"] != body.movie_id:
             raise HTTPException(409, "movie is not the current catalog item")
-        now = datetime.datetime.now().isoformat(timespec="seconds")
+        now = utc_iso()
         con.execute(
             "INSERT INTO movie_swipes(round_id,user_id,movie_id,decision,created_at) "
             "VALUES(?,?,?,?,?)",
@@ -6971,7 +6988,7 @@ async def movies_reset(body: MovieUserIn):
             "AND pair_high_id=? AND status='active'",
             (low, high),
         )
-        now = datetime.datetime.now().isoformat(timespec="seconds")
+        now = utc_iso()
         round_id = con.execute(
             "INSERT INTO movie_rounds(pair_low_id,pair_high_id,status,created_at) "
             "VALUES(?,?,'active',?)",
@@ -7024,7 +7041,7 @@ async def movies_matches_watched(body: MovieWatchIn):
         if not row:
             raise HTTPException(404, "Фильм не найден в списке совпадений")
         watched_at = (
-            datetime.datetime.now().isoformat(timespec="seconds")
+            utc_iso()
             if body.watched
             else ""
         )
