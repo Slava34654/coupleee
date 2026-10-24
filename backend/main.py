@@ -2849,89 +2849,14 @@ async def journal_del(jid: int, user_id: int):
 
 
 # ---------------- события / обратный отсчёт ----------------
-def next_annual(month: int, day: int, now: datetime.date) -> datetime.date:
-    for y in range(now.year, now.year + 9):
-        try:
-            d = datetime.date(y, month, day)
-        except ValueError:
-            continue  # 29 февраля
-        if d >= now:
-            return d
-    return datetime.date(now.year + 1, month, day)
+try:
+    from backend.routers.events import create_router as create_events_router
+except ImportError:
+    from routers.events import create_router as create_events_router
 
-
-@protected.post("/events")
-async def event_add(body: EventIn):
-    couple_of(body.user_id)
-    datetime.date.fromisoformat(body.date)  # проверка формата
-    con = db()
-    cur = con.execute(
-        "INSERT INTO events(user_id,title,date,icon,repeat) VALUES(?,?,?,?,?)",
-        (body.user_id, body.title, body.date, body.icon, 1 if body.repeat else 0),
-    )
-    con.commit()
-    con.close()
-    await wsman.ping_couple(body.user_id, "events")
-    return {"id": cur.lastrowid}
-
-
-@protected.get("/events")
-def events(user_id: int):
-    me, partner = couple_of(user_id)
-    ids = [user_id] + ([partner["id"]] if partner else [])
-    q = sql_placeholders(len(ids))
-    con = db()
-    rows = con.execute(
-        "SELECT * FROM events WHERE user_id IN (" + q + ")", ids
-    ).fetchall()
-    con.close()
-    now = utc_today()
-    out = []
-    for r in rows:
-        base = datetime.date.fromisoformat(r["date"])
-        show = r["date"]
-        if r["repeat"]:
-            nxt = next_annual(base.month, base.day, now)
-            d = (nxt - now).days
-            show = nxt.isoformat()
-        else:
-            d = (base - now).days
-        out.append(
-            {
-                "id": r["id"],
-                "title": r["title"],
-                "date": show,
-                "days_left": d,
-                "icon": r["icon"] or "🎉",
-                "repeat": bool(r["repeat"]),
-            }
-        )
-    out.sort(
-        key=lambda e: (
-            e["days_left"] < 0,
-            abs(e["days_left"]) if e["days_left"] >= 0 else -e["days_left"],
-        )
-    )
-    return out
-
-
-@protected.delete("/events/{eid}")
-async def event_del(eid: int, user_id: int):
-    me, partner = couple_of(user_id)
-    ids = [user_id] + ([partner["id"]] if partner else [])
-    con = db()
-    row = con.execute("SELECT user_id FROM events WHERE id=?", (eid,)).fetchone()
-    if not row:
-        con.close()
-        raise HTTPException(404, "event not found")
-    if row["user_id"] not in ids:
-        con.close()
-        raise HTTPException(403, "not your event")
-    con.execute("DELETE FROM events WHERE id=?", (eid,))
-    con.commit()
-    con.close()
-    await wsman.ping_couple(user_id, "events")
-    return {"ok": True}
+app.include_router(
+    create_events_router(db, current_user, couple_of, sql_placeholders, utc_today, wsman)
+)
 
 
 # ---------------- общий вишлист пары ----------------
