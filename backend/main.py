@@ -6,6 +6,8 @@
 """
 
 from fastapi import (
+    APIRouter,
+    Depends,
     FastAPI,
     HTTPException,
     WebSocket,
@@ -16,6 +18,7 @@ from fastapi import (
     Request,
 )
 from fastapi.responses import FileResponse, Response
+from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel
@@ -82,12 +85,18 @@ app = FastAPI(title="Enrwine API", version="1.0")
 # Токен текущего HTTP-запроса (заголовок X-Auth-Token). WebSocket идёт мимо
 # middleware — там токен передаётся явным query-параметром.
 _request_token: ContextVar[str] = ContextVar("request_token", default="")
+_request_user: ContextVar[object | None] = ContextVar("request_user", default=None)
 
 
 class AuthTokenMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
-        _request_token.set(request.headers.get("x-auth-token", ""))
-        return await call_next(request)
+        token_context = _request_token.set(request.headers.get("x-auth-token", ""))
+        user_context = _request_user.set(None)
+        try:
+            return await call_next(request)
+        finally:
+            _request_user.reset(user_context)
+            _request_token.reset(token_context)
 
 
 app.add_middleware(AuthTokenMiddleware)
@@ -2299,18 +2308,10 @@ def couple_of(user_id: int):
     Токен выдаётся при создании/входе и хранится на устройстве.
     Без верного X-Auth-Token — 401 (id подряд не перебрать).
     """
-    me, partner = lookup_couple(user_id)
-    cols = me.keys()
-    stored = me["token_hash"] if "token_hash" in cols else ""
-    tok = _request_token.get()
-    supplied = hash_token(tok) if tok else ""
-    if not stored or not supplied or not secrets.compare_digest(stored, supplied):
-        raise HTTPException(401, "unauthorized")
-    expires_at = me["token_expires_at"] if "token_expires_at" in cols else 0
-    now_ms = int(datetime.datetime.now().timestamp() * 1000)
-    if not expires_at or int(expires_at) <= now_ms:
-        raise HTTPException(401, "token expired")
-    return me, partner
+    current = _request_user.get() or authenticated_user()
+    if int(current["id"]) != user_id:
+        raise HTTPException(403, "token does not belong to user_id")
+    return lookup_couple(user_id)
 
 
 def authenticated_user():
@@ -2329,6 +2330,61 @@ def authenticated_user():
     if not user["token_expires_at"] or int(user["token_expires_at"]) <= now_ms:
         raise HTTPException(401, "token expired")
     return user
+
+
+def current_user():
+    user = authenticated_user()
+    _request_user.set(user)
+    return user
+
+
+protected = APIRouter(dependencies=[Depends(current_user)])
+
+PUBLIC_HTTP_ROUTES = frozenset(
+    {
+        ("GET", "/"),
+        ("GET", "/Enrwine.apk"),
+        ("GET", "/app/version"),
+        ("GET", "/manifest.webmanifest"),
+        ("GET", "/sw.js"),
+        ("GET", "/pet3d.html"),
+        ("POST", "/auth/register"),
+        ("POST", "/auth/login"),
+        ("POST", "/pair"),
+        ("POST", "/pair/join"),
+        ("GET", "/health/push"),
+        ("GET", "/health/bot"),
+        ("GET", "/health/storage"),
+        ("GET", "/quiz-categories"),
+        ("GET", "/quiz-categories/{category_id}/subtopics"),
+        ("GET", "/quizzes"),
+        ("GET", "/ideas"),
+        ("GET", "/idea/random"),
+        ("GET", "/movies/poster/{filename}"),
+    }
+)
+
+
+def audit_http_routes() -> frozenset[tuple[str, str]]:
+    public_routes = set()
+    for route in app.routes:
+        if not isinstance(route, APIRoute):
+            continue
+        requires_auth = any(
+            dependency.call is current_user
+            for dependency in route.dependant.dependencies
+        )
+        if not requires_auth:
+            public_routes.update((method, route.path) for method in route.methods)
+    observed = frozenset(public_routes)
+    if observed != PUBLIC_HTTP_ROUTES:
+        unexpected = sorted(observed - PUBLIC_HTTP_ROUTES)
+        missing = sorted(PUBLIC_HTTP_ROUTES - observed)
+        raise RuntimeError(
+            f"HTTP route authorization audit failed: unexpected={unexpected}, "
+            f"missing={missing}"
+        )
+    return observed
 
 
 def partner_id_of(user_id: int) -> Optional[int]:
@@ -2917,7 +2973,7 @@ def can_read_photo(name: str, user) -> bool:
         con.close()
 
 
-@app.delete("/account")
+@protected.delete("/account")
 async def delete_account(body: DeleteAccountIn):
     me, partner = couple_of(body.user_id)
     password_hash = me["password_hash"] or ""
@@ -3116,7 +3172,7 @@ async def delete_account(body: DeleteAccountIn):
     return {"ok": True}
 
 
-@app.post("/pair/setup")
+@protected.post("/pair/setup")
 async def pair_setup(body: PairSetupIn):
     me, _ = couple_of(body.user_id)
     name = body.name.strip()
@@ -3235,7 +3291,7 @@ async def pair_join(body: JoinIn):
     return {"user_id": uid, "partner_id": other["id"], "token": tok}
 
 
-@app.get("/me")
+@protected.get("/me")
 def me(user_id: int):
     me, partner = couple_of(user_id)
     since = datetime.date.fromisoformat(me["together_since"])
@@ -3282,7 +3338,7 @@ def me(user_id: int):
     }
 
 
-@app.get("/partner")
+@protected.get("/partner")
 def partner_profile(user_id: int):
     """Полный профиль партнёра: аватар, возраст, настроение, активность."""
     me, partner = couple_of(user_id)
@@ -3327,7 +3383,7 @@ def partner_profile(user_id: int):
     }
 
 
-@app.post("/profile/avatar")
+@protected.post("/profile/avatar")
 async def profile_avatar(body: AvatarIn):
     couple_of(body.user_id)
     avatar = body.avatar.strip()
@@ -3477,7 +3533,7 @@ def send_realtime_push(user_id: int, what: str):
         con.close()
 
 
-@app.post("/push/register")
+@protected.post("/push/register")
 def push_register(body: PushTokenIn):
     couple_of(body.user_id)
     token = body.token.strip()
@@ -3501,7 +3557,7 @@ def push_register(body: PushTokenIn):
     return {"ok": True}
 
 
-@app.post("/push/unregister")
+@protected.post("/push/unregister")
 def push_unregister(body: PushTokenIn):
     couple_of(body.user_id)
     con = db()
@@ -3515,7 +3571,7 @@ def push_unregister(body: PushTokenIn):
 
 
 # ---------------- настроение ----------------
-@app.post("/mood")
+@protected.post("/mood")
 async def set_mood(body: MoodIn, background_tasks: BackgroundTasks):
     me, partner = couple_of(body.user_id)
     mood = body.mood.strip()
@@ -3605,7 +3661,7 @@ def companion_daily_answer(user_id: int, answer: str):
         con.close()
 
 
-@app.get("/daily")
+@protected.get("/daily")
 def get_daily(user_id: int):
     couple_of(user_id)
     dq = daily_question()
@@ -3632,7 +3688,7 @@ def get_daily(user_id: int):
     }
 
 
-@app.post("/daily/answer")
+@protected.post("/daily/answer")
 async def answer_daily(body: AnswerIn, background_tasks: BackgroundTasks):
     user_id = body.user_id
     me, partner = couple_of(user_id)
@@ -3728,7 +3784,7 @@ def quizzes():
     return out
 
 
-@app.get("/quiz-progress")
+@protected.get("/quiz-progress")
 def quiz_progress(user_id: int):
     me, partner = couple_of(user_id)
     if not partner:
@@ -3749,7 +3805,7 @@ def quiz_progress(user_id: int):
     return {"quiz_ids": [row["quiz_id"] for row in rows]}
 
 
-@app.get("/quiz/{qid}")
+@protected.get("/quiz/{qid}")
 def quiz(qid: int, user_id: int):
     couple_of(user_id)
     con = db()
@@ -3797,7 +3853,7 @@ def quiz(qid: int, user_id: int):
     }
 
 
-@app.post("/quiz/{qid}/answer")
+@protected.post("/quiz/{qid}/answer")
 async def quiz_answer(qid: int, body: QuizAnswerIn):
     couple_of(body.user_id)
     con = db()
@@ -3821,7 +3877,7 @@ async def quiz_answer(qid: int, body: QuizAnswerIn):
     return {"ok": True}
 
 
-@app.get("/quiz/{qid}/result")
+@protected.get("/quiz/{qid}/result")
 def quiz_result(qid: int, user_id: int):
     me, partner = couple_of(user_id)
     if not partner:
@@ -3894,7 +3950,7 @@ def quiz_result(qid: int, user_id: int):
 
 
 # ---------------- фото на виджет партнёра ----------------
-@app.post("/widget")
+@protected.post("/widget")
 async def widget_send(body: WidgetIn, background_tasks: BackgroundTasks):
     me, partner = couple_of(body.user_id)
     if not body.photo:
@@ -3918,7 +3974,7 @@ async def widget_send(body: WidgetIn, background_tasks: BackgroundTasks):
     return {"ok": True, "ts": now}
 
 
-@app.get("/widget")
+@protected.get("/widget")
 def widget_latest(user_id: int):
     me, partner = couple_of(user_id)
     con = db()
@@ -3944,7 +4000,7 @@ def widget_latest(user_id: int):
 
 
 # ---------------- смена / удаление пары ----------------
-@app.delete("/pair")
+@protected.delete("/pair")
 async def pair_leave(user_id: int):
     """Покинуть пару, сохранив аккаунты и их действующие сессии."""
     me, partner = couple_of(user_id)
@@ -3991,7 +4047,7 @@ async def pair_leave(user_id: int):
 
 
 # ---------------- обнимашки (tap-to-feel) ----------------
-@app.post("/tap")
+@protected.post("/tap")
 async def tap(body: TapIn):
     couple_of(body.user_id)
     now = datetime.datetime.now().isoformat(timespec="seconds")
@@ -4003,7 +4059,7 @@ async def tap(body: TapIn):
     return {"ok": True, "ts": now}
 
 
-@app.get("/tap")
+@protected.get("/tap")
 def tap_status(user_id: int):
     me, partner = couple_of(user_id)
     con = db()
@@ -4031,7 +4087,7 @@ def tap_status(user_id: int):
 
 
 # ---------------- лента настроений ----------------
-@app.get("/moods")
+@protected.get("/moods")
 def moods_feed(user_id: int):
     me, partner = couple_of(user_id)
     ids = [user_id] + ([partner["id"]] if partner else [])
@@ -4058,7 +4114,7 @@ def timestamp_with_timezone(value: str) -> str:
         return value
 
 
-@app.get("/activity")
+@protected.get("/activity")
 def partner_activity(user_id: int, limit: int = 50):
     _, partner = couple_of(user_id)
     if not partner:
@@ -4159,7 +4215,7 @@ def partner_activity(user_id: int, limit: int = 50):
 
 
 # ---------------- статистика пары ----------------
-@app.get("/stats")
+@protected.get("/stats")
 def stats(user_id: int):
     me, partner = couple_of(user_id)
     pid = partner["id"] if partner else None
@@ -4218,7 +4274,7 @@ def stats(user_id: int):
 
 
 # ---------------- тематические паки вопросов ----------------
-@app.get("/packs")
+@protected.get("/packs")
 def packs(user_id: int, kind: str = ""):
     me, partner = couple_of(user_id)
     pid = partner["id"] if partner else None
@@ -4259,7 +4315,7 @@ def packs(user_id: int, kind: str = ""):
     return out
 
 
-@app.get("/pack/{pid}")
+@protected.get("/pack/{pid}")
 def pack(pid: int, user_id: int):
     me, partner = couple_of(user_id)
     paid = partner["id"] if partner else None
@@ -4320,7 +4376,7 @@ def pack(pid: int, user_id: int):
     }
 
 
-@app.post("/pack/{pid}/answer")
+@protected.post("/pack/{pid}/answer")
 async def pack_answer(pid: int, body: PackAnswerIn):
     couple_of(body.user_id)
     con = db()
@@ -4376,7 +4432,7 @@ def idea_random():
     return dict(random.choice(rows))
 
 
-@app.post("/ideas")
+@protected.post("/ideas")
 async def idea_add(body: IdeaIn):
     con = db()
     cur = con.execute(
@@ -4388,7 +4444,7 @@ async def idea_add(body: IdeaIn):
     return {"id": cur.lastrowid}
 
 
-@app.post("/idea/{iid}/done")
+@protected.post("/idea/{iid}/done")
 async def idea_done(iid: int, done: bool = True):
     con = db()
     con.execute("UPDATE ideas SET done=? WHERE id=?", (1 if done else 0, iid))
@@ -4410,7 +4466,7 @@ def photo_extension(data: bytes):
     return None
 
 
-@app.post("/photos")
+@protected.post("/photos")
 async def upload_photo(file: UploadFile = File(...)):
     user = authenticated_user()
     data = await file.read()
@@ -4462,7 +4518,7 @@ async def upload_photo(file: UploadFile = File(...)):
     return {"url": f"/photos/{name}"}
 
 
-@app.get("/photos/{name}")
+@protected.get("/photos/{name}")
 def get_photo(name: str):
     if managed_photo_name(f"/photos/{name}") != name:
         raise HTTPException(404, "not found")
@@ -4514,7 +4570,7 @@ def storage_health():
 
 
 # ---------------- журнал ----------------
-@app.post("/journal")
+@protected.post("/journal")
 async def journal_add(body: JournalIn):
     couple_of(body.user_id)
     con = db()
@@ -4547,7 +4603,7 @@ def journal_row(r, user_id: int, con) -> dict:
     return d
 
 
-@app.get("/journal")
+@protected.get("/journal")
 def journal_list(user_id: int, q: str = "", author: str = "all", fav: bool = False):
     me, partner = couple_of(user_id)
     ids = [user_id] + ([partner["id"]] if partner else [])
@@ -4575,7 +4631,7 @@ def journal_list(user_id: int, q: str = "", author: str = "all", fav: bool = Fal
     return out
 
 
-@app.post("/journal/{jid}/like")
+@protected.post("/journal/{jid}/like")
 async def journal_like(jid: int, body: LikeIn):
     couple_of(body.user_id)
     con = db()
@@ -4608,7 +4664,7 @@ async def journal_like(jid: int, body: LikeIn):
     return {"liked": liked, "likes": likes}
 
 
-@app.post("/journal/{jid}/fav")
+@protected.post("/journal/{jid}/fav")
 async def journal_fav(jid: int, body: LikeIn):
     couple_of(body.user_id)
     con = db()
@@ -4623,7 +4679,7 @@ async def journal_fav(jid: int, body: LikeIn):
     return {"ok": True}
 
 
-@app.delete("/journal/{jid}")
+@protected.delete("/journal/{jid}")
 async def journal_del(jid: int, user_id: int):
     me, partner = couple_of(user_id)
     con = db()
@@ -4654,7 +4710,7 @@ def next_annual(month: int, day: int, now: datetime.date) -> datetime.date:
     return datetime.date(now.year + 1, month, day)
 
 
-@app.post("/events")
+@protected.post("/events")
 async def event_add(body: EventIn):
     couple_of(body.user_id)
     datetime.date.fromisoformat(body.date)  # проверка формата
@@ -4669,7 +4725,7 @@ async def event_add(body: EventIn):
     return {"id": cur.lastrowid}
 
 
-@app.get("/events")
+@protected.get("/events")
 def events(user_id: int):
     me, partner = couple_of(user_id)
     ids = [user_id] + ([partner["id"]] if partner else [])
@@ -4707,7 +4763,7 @@ def events(user_id: int):
     return out
 
 
-@app.delete("/events/{eid}")
+@protected.delete("/events/{eid}")
 async def event_del(eid: int, user_id: int):
     me, partner = couple_of(user_id)
     ids = [user_id] + ([partner["id"]] if partner else [])
@@ -4748,7 +4804,7 @@ def wishlist_row(row):
     }
 
 
-@app.get("/wishlist")
+@protected.get("/wishlist")
 def wishlist_get(user_id: int):
     _, _, pair_key = wishlist_couple(user_id)
     con = db()
@@ -4762,7 +4818,7 @@ def wishlist_get(user_id: int):
     return [wishlist_row(row) for row in rows]
 
 
-@app.post("/wishlist")
+@protected.post("/wishlist")
 async def wishlist_add(body: WishlistIn):
     _, _, pair_key = wishlist_couple(body.user_id)
     title = body.title.strip()
@@ -4783,7 +4839,7 @@ async def wishlist_add(body: WishlistIn):
     return {"id": cur.lastrowid}
 
 
-@app.post("/wishlist/{item_id}/done")
+@protected.post("/wishlist/{item_id}/done")
 async def wishlist_done(item_id: int, body: WishlistDoneIn):
     _, _, pair_key = wishlist_couple(body.user_id)
     con = db()
@@ -4806,7 +4862,7 @@ async def wishlist_done(item_id: int, body: WishlistDoneIn):
     return {"ok": True}
 
 
-@app.delete("/wishlist/{item_id}")
+@protected.delete("/wishlist/{item_id}")
 async def wishlist_delete(item_id: int, user_id: int):
     _, _, pair_key = wishlist_couple(user_id)
     con = db()
@@ -4856,7 +4912,7 @@ def require_secure_exact_location(request: Request):
         raise HTTPException(426, "HTTPS required for exact location")
 
 
-@app.post("/location")
+@protected.post("/location")
 async def location_set(body: LocationIn, request: Request):
     _, partner = couple_of(body.user_id)  # 404, если пользователя нет
     if (
@@ -4886,7 +4942,7 @@ async def location_set(body: LocationIn, request: Request):
     return {"ok": True}
 
 
-@app.delete("/location")
+@protected.delete("/location")
 def location_stop(user_id: int):
     couple_of(user_id)
     con = db()
@@ -4897,7 +4953,7 @@ def location_stop(user_id: int):
     return {"ok": True}
 
 
-@app.post("/widget/location/consent")
+@protected.post("/widget/location/consent")
 def exact_widget_consent_grant(body: ExactWidgetConsentIn, request: Request):
     require_secure_exact_location(request)
     _, partner = couple_of(body.user_id)
@@ -4916,7 +4972,7 @@ def exact_widget_consent_grant(body: ExactWidgetConsentIn, request: Request):
     return {"ok": True}
 
 
-@app.delete("/widget/location/consent")
+@protected.delete("/widget/location/consent")
 def exact_widget_consent_revoke(user_id: int):
     couple_of(user_id)
     con = db()
@@ -4926,7 +4982,7 @@ def exact_widget_consent_revoke(user_id: int):
     return {"ok": True}
 
 
-@app.get("/widget/location")
+@protected.get("/widget/location")
 def exact_widget_location(user_id: int, request: Request):
     require_secure_exact_location(request)
     me, partner = couple_of(user_id)
@@ -4981,7 +5037,7 @@ def exact_widget_location(user_id: int, request: Request):
     }
 
 
-@app.get("/distance")
+@protected.get("/distance")
 def distance(user_id: int):
     me, partner = couple_of(user_id)
     con = db()
@@ -5032,7 +5088,7 @@ def couple_premium_until(me, partner) -> str:
     return max(active_until, default="")
 
 
-@app.get("/premium")
+@protected.get("/premium")
 def premium_status(user_id: int):
     me, partner = couple_of(user_id)
     until = couple_premium_until(me, partner)
@@ -5048,7 +5104,7 @@ class TogetherIn(BaseModel):
     date: str  # YYYY-MM-DD
 
 
-@app.post("/together")
+@protected.post("/together")
 async def together_set(body: TogetherIn):
     me, partner = couple_of(body.user_id)
     date = check_since(body.date)
@@ -5302,7 +5358,7 @@ def companion_response(
     }
 
 
-@app.get("/companion")
+@protected.get("/companion")
 def companion_get(user_id: int):
     _, partner, pair_key = companion_couple(user_id)
     con = db()
@@ -5320,7 +5376,7 @@ def companion_get(user_id: int):
     return companion_response(row, state, row["version"] if row else 0, user_id)
 
 
-@app.post("/companion/propose")
+@protected.post("/companion/propose")
 async def companion_propose(body: CompanionProposalIn):
     _, partner, pair_key = companion_couple(body.user_id)
     pet_type = body.type.strip().upper()
@@ -5356,7 +5412,7 @@ async def companion_propose(body: CompanionProposalIn):
     )
 
 
-@app.post("/companion/confirm")
+@protected.post("/companion/confirm")
 async def companion_confirm(body: CompanionUserIn):
     _, partner, pair_key = companion_couple(body.user_id)
     con = db()
@@ -5405,7 +5461,7 @@ async def companion_confirm(body: CompanionUserIn):
     )
 
 
-@app.post("/companion/action")
+@protected.post("/companion/action")
 async def companion_action(body: CompanionActionIn):
     me, partner, pair_key = companion_couple(body.user_id)
     con = db()
@@ -5604,7 +5660,7 @@ def game_response(kind: str, state: dict, version: int, me, partner):
     }
 
 
-@app.get("/games/{kind}")
+@protected.get("/games/{kind}")
 def game_get(kind: str, user_id: int):
     me, partner, pair_key = game_couple(user_id)
     if not partner:
@@ -5633,7 +5689,7 @@ def game_get(kind: str, user_id: int):
     return game_response(kind, state, version, me, partner)
 
 
-@app.post("/games/{kind}/action")
+@protected.post("/games/{kind}/action")
 async def game_action(kind: str, body: GameActionIn):
     me, partner, pair_key = game_couple(body.user_id)
     if not partner:
@@ -5826,13 +5882,13 @@ def community_map_delete_interactions(con, post_id: int):
     con.execute("DELETE FROM community_map_reports WHERE post_id=?", (post_id,))
 
 
-@app.get("/community/map/countries")
+@protected.get("/community/map/countries")
 def community_map_countries(user_id: int):
     couple_of(user_id)
     return COUNTRY_CATALOG
 
 
-@app.get("/community/map")
+@protected.get("/community/map")
 def community_map_list(user_id: int):
     couple_of(user_id)
     con = db()
@@ -5860,7 +5916,7 @@ def community_map_list(user_id: int):
         con.close()
 
 
-@app.post("/community/map")
+@protected.post("/community/map")
 def community_map_upsert(body: CommunityMapPostIn):
     me, partner, low, high = movie_couple(body.user_id)
     lat = float(body.lat)
@@ -5955,7 +6011,7 @@ def community_map_upsert(body: CommunityMapPostIn):
         con.close()
 
 
-@app.post("/community/map/{post_id}/approve")
+@protected.post("/community/map/{post_id}/approve")
 def community_map_approve(post_id: int, body: CommunityMapUserIn):
     me, partner, low, high = movie_couple(body.user_id)
     con = db()
@@ -5980,7 +6036,7 @@ def community_map_approve(post_id: int, body: CommunityMapUserIn):
         con.close()
 
 
-@app.delete("/community/map/{post_id}")
+@protected.delete("/community/map/{post_id}")
 def community_map_delete(post_id: int, user_id: int):
     couple_of(user_id)
     con = db()
@@ -6003,7 +6059,7 @@ def community_map_delete(post_id: int, user_id: int):
         con.close()
 
 
-@app.post("/community/map/{post_id}/report")
+@protected.post("/community/map/{post_id}/report")
 def community_map_report(post_id: int, body: CommunityMapReportIn):
     couple_of(body.user_id)
     if body.reason not in {"privacy", "spam", "inappropriate", "other"}:
@@ -6037,7 +6093,7 @@ def community_map_report(post_id: int, body: CommunityMapReportIn):
         con.close()
 
 
-@app.post("/community/map/{post_id}/like")
+@protected.post("/community/map/{post_id}/like")
 def community_map_like(post_id: int, body: CommunityMapLikeIn):
     couple_of(body.user_id)
     con = db()
@@ -6077,7 +6133,7 @@ def community_map_like(post_id: int, body: CommunityMapLikeIn):
         con.close()
 
 
-@app.get("/community/map/{post_id}/comments")
+@protected.get("/community/map/{post_id}/comments")
 def community_map_comments(post_id: int, user_id: int):
     couple_of(user_id)
     con = db()
@@ -6097,7 +6153,7 @@ def community_map_comments(post_id: int, user_id: int):
         con.close()
 
 
-@app.post("/community/map/{post_id}/comments")
+@protected.post("/community/map/{post_id}/comments")
 def community_map_comment_add(post_id: int, body: CommunityMapCommentIn):
     couple_of(body.user_id)
     text = body.text.strip()
@@ -6138,7 +6194,7 @@ def community_map_comment_add(post_id: int, body: CommunityMapCommentIn):
         con.close()
 
 
-@app.delete("/community/map/{post_id}/comments/{comment_id}")
+@protected.delete("/community/map/{post_id}/comments/{comment_id}")
 def community_map_comment_delete(post_id: int, comment_id: int, user_id: int):
     couple_of(user_id)
     con = db()
@@ -6175,7 +6231,7 @@ def community_map_comment_delete(post_id: int, comment_id: int, user_id: int):
         con.close()
 
 
-@app.post("/community/map/{post_id}/comments/{comment_id}/report")
+@protected.post("/community/map/{post_id}/comments/{comment_id}/report")
 def community_map_comment_report(
     post_id: int, comment_id: int, body: CommunityMapCommentReportIn
 ):
@@ -6400,7 +6456,7 @@ def movie_state(con, round_row, me, partner):
     }
 
 
-@app.get("/movies/state")
+@protected.get("/movies/state")
 def movies_state(user_id: int):
     me, partner, low, high = movie_couple(user_id)
     con = db()
@@ -6417,7 +6473,7 @@ def movies_state(user_id: int):
         con.close()
 
 
-@app.post("/movies/swipe")
+@protected.post("/movies/swipe")
 async def movies_swipe(body: MovieSwipeIn):
     me, partner, low, high = movie_couple(body.user_id)
     decision = {"left": "heart", "right": "skip"}.get(body.direction)
@@ -6489,7 +6545,7 @@ async def movies_swipe(body: MovieSwipeIn):
     return result
 
 
-@app.post("/movies/genre")
+@protected.post("/movies/genre")
 async def movies_genre(body: MovieGenreIn):
     me, partner, low, high = movie_couple(body.user_id)
     genre_key = body.genre_key.strip().lower()
@@ -6532,7 +6588,7 @@ async def movies_genre(body: MovieGenreIn):
     return result
 
 
-@app.post("/movies/reset")
+@protected.post("/movies/reset")
 async def movies_reset(body: MovieUserIn):
     me, partner, low, high = movie_couple(body.user_id)
     con = db()
@@ -6563,7 +6619,7 @@ async def movies_reset(body: MovieUserIn):
     return result
 
 
-@app.get("/movies/matches")
+@protected.get("/movies/matches")
 def movies_matches(user_id: int):
     me, partner, low, high = movie_couple(user_id)
     con = db()
@@ -6582,7 +6638,7 @@ def movies_matches(user_id: int):
     }
 
 
-@app.post("/movies/matches/watched")
+@protected.post("/movies/matches/watched")
 async def movies_matches_watched(body: MovieWatchIn):
     me, partner, low, high = movie_couple(body.user_id)
     con = db()
@@ -6614,7 +6670,7 @@ async def movies_matches_watched(body: MovieWatchIn):
     return movies_matches(body.user_id)
 
 
-@app.delete("/movies/matches/{movie_id}")
+@protected.delete("/movies/matches/{movie_id}")
 async def movies_matches_delete(movie_id: int, user_id: int):
     me, partner, low, high = movie_couple(user_id)
     con = db()
@@ -6662,4 +6718,6 @@ def movie_poster(filename: str):
 
 
 # Keep this mount last so API, WebSocket, photos and APK routes take priority.
+app.include_router(protected)
+audit_http_routes()
 app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="flutter_web")

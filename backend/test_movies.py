@@ -118,7 +118,7 @@ def test_auth_and_reciprocal_pair_isolation(movie_api):
         "/movies/state",
         params={"user_id": first["user_id"]},
         headers=headers(outsider),
-    ).status_code == 401
+    ).status_code == 403
 
     first_state = state(client, first).json()
     second_state = state(client, second).json()

@@ -73,7 +73,7 @@ assert point["km"] is not None and point["km"] > 0, point
 
 # A token can only read its own current partner relation.
 r = client.get("/widget/location", headers=a_headers, params={"user_id": b_id})
-assert r.status_code == 401, r.text
+assert r.status_code == 403, r.text
 
 # Revocation immediately erases both consent and the exact point.
 r = client.delete("/widget/location/consent", headers=a_headers,

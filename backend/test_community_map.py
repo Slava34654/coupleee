@@ -71,7 +71,7 @@ def test_auth_country_catalog_and_private_response(map_api):
         "/community/map",
         headers=headers(second),
         params={"user_id": first["user_id"]},
-    ).status_code == 401
+    ).status_code == 403
 
     countries = client.get(
         "/community/map/countries",

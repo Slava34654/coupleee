@@ -343,17 +343,17 @@ w = c.get("/widget", params={"user_id": A}).json()
 assert w["mine"]["photo"] == "/photos/w1.png" and w["partner"] is None
 print("widget photos OK")
 
-# авторизация: без токена и с чужим токеном — 401, перебор id закрыт
+# авторизация: неверный токен — 401, чужой user_id — 403
 c0 = TestClient(app)
 assert c0.get("/me", params={"user_id": A}).status_code == 401
 assert c0.get("/me", params={"user_id": A},
               headers={"X-Auth-Token": "wrong"}).status_code == 401
 assert c0.get("/me", params={"user_id": B},
-              headers={"X-Auth-Token": TOK[A]}).status_code == 401  # чужой токен
+              headers={"X-Auth-Token": TOK[A]}).status_code == 403
 assert c0.get("/me", params={"user_id": 999999},
-              headers={"X-Auth-Token": "x"}).status_code == 404
+              headers={"X-Auth-Token": "x"}).status_code == 401
 assert c0.get("/journal", params={"user_id": A}).status_code == 401
-print("auth OK: 401 without token, чужой токен отклонён")
+print("auth OK: 401 without token, 403 for foreign user_id")
 
 r = c.delete("/pair", params={"user_id": A})
 assert r.status_code == 200 and r.json()["user_id"] == A
