@@ -36,7 +36,7 @@ Environment=PORT=8000
 Environment=FORWARDED_ALLOW_IPS=127.0.0.1
 EnvironmentFile=-/etc/enrwine.env
 ExecStartPre=/opt/enrwine/venv/bin/alembic -c /opt/enrwine/repo/backend/alembic.ini upgrade head
-ExecStart=/opt/enrwine/venv/bin/uvicorn backend.main:app --host 127.0.0.1 --port 8000 --proxy-headers --forwarded-allow-ips 127.0.0.1
+ExecStart=/opt/enrwine/venv/bin/uvicorn backend.main:app --host 127.0.0.1 --port 8000 --proxy-headers --forwarded-allow-ips 127.0.0.1 --no-access-log
 Restart=always
 RestartSec=3
 [Install]

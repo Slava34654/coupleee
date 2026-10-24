@@ -77,3 +77,14 @@ def test_authentication_times_out(client, monkeypatch):
         with pytest.raises(WebSocketDisconnect) as error:
             socket.receive_json()
     assert error.value.code == 4408
+
+
+def test_authenticated_connection_has_idle_timeout(client, monkeypatch):
+    monkeypatch.setattr(main, "WS_IDLE_TIMEOUT_SECONDS", 0.01)
+    user = register(client)
+    with client.websocket_connect("/ws") as socket:
+        socket.send_json({"type": "auth", "token": user["token"]})
+        assert socket.receive_json()["type"] == "authenticated"
+        with pytest.raises(WebSocketDisconnect) as error:
+            socket.receive_json()
+    assert error.value.code == 4408

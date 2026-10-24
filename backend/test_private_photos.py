@@ -13,6 +13,7 @@ PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
 def client(tmp_path, monkeypatch):
     monkeypatch.setattr(main, "DB", str(tmp_path / "photos.db"))
     monkeypatch.setattr(main, "PHOTO_DIR", str(tmp_path / "photos"))
+    monkeypatch.setattr(main, "PHOTOS_PUBLIC_LEGACY", False)
     monkeypatch.setattr(main, "_s3", None)
     main.init_db()
     with TestClient(main.app) as test_client:
@@ -33,9 +34,11 @@ def auth(user):
 
 
 def upload(client, user):
+    issued = client.post("/photos/upload-token", headers=auth(user))
+    assert issued.status_code == 200, issued.text
     response = client.post(
         "/photos",
-        headers=auth(user),
+        headers={"X-Photo-Upload-Token": issued.json()["upload_token"]},
         files={"file": ("photo.png", PNG, "image/png")},
     )
     assert response.status_code == 200, response.text
@@ -62,11 +65,17 @@ def test_photo_requires_authentication_and_hides_foreign_media(client):
     url = upload(client, owner)
     assert client.get(url).status_code == 401
     assert client.get(url, headers=auth(stranger)).status_code == 404
-
     response = client.get(url, headers=auth(owner))
     assert response.status_code == 200
     assert response.content == PNG
     assert response.headers["cache-control"] == "private, no-store"
+
+
+def test_legacy_public_switch_allows_unsigned_links(client, monkeypatch):
+    owner = register(client, "legacy-owner@example.com")
+    url = upload(client, owner)
+    monkeypatch.setattr(main, "PHOTOS_PUBLIC_LEGACY", True)
+    assert client.get(url).status_code == 200
 
 
 def test_only_current_mutual_partner_can_read_photo(client):

@@ -57,6 +57,7 @@ sudo cp -a /opt/enrwine/data/photos "$backup/"
 ```
 
 Для upload endpoint задайте на reverse proxy body limit немного выше `PHOTO_MAX_BYTES` (6 MiB при стандартном лимите 5 MiB).
+Для nginx подключите содержимое `deploy/nginx-security.conf` внутри HTTPS `server`-блока. Оно включает HSTS, `nosniff`, body limit и отключает access log с URL capability-параметрами.
 
 ## Docker и Fly.io
 

@@ -7,11 +7,11 @@ This release changes session storage, photo uploads, and the WebSocket handshake
 1. Stop the backend so no old process can write plaintext session tokens.
 2. Copy `couple.db` and `photos/` to storage outside the checkout and verify the copies.
 3. Set a random `PHOTO_URL_HMAC_SECRET` of at least 32 bytes in `/etc/enrwine.env`.
-4. Keep `PHOTO_UPLOAD_TOKEN_LEGACY=1` while already installed clients are upgraded.
-5. Keep `PHOTOS_PUBLIC_LEGACY=0`. Enable it only as a short emergency rollback for unsigned photo links.
+4. Keep `PHOTO_UPLOAD_TOKEN_LEGACY=0`; supported clients request a one-time upload token.
+5. Keep `PHOTOS_PUBLIC_LEGACY=1` until the signed-link client release is deployed, then switch it to `0`.
 6. Upgrade the database with `alembic -c backend/alembic.ini upgrade head` and start the new backend.
 7. Publish the Flutter client that requests `/photos/upload-token` and authenticates WebSocket connections with the first message.
-8. After the supported client population has upgraded, set `PHOTO_UPLOAD_TOKEN_LEGACY=0` and restart the backend.
+8. After the supported client population has upgraded, set `PHOTOS_PUBLIC_LEGACY=0` and restart the backend.
 
 Configure the reverse proxy with a request-body limit slightly above `PHOTO_MAX_BYTES` (for example, 6 MiB for the default 5 MiB file limit). The application streams file contents to temporary storage, but the proxy limit prevents oversized multipart bodies from reaching the ASGI parser.
 
@@ -47,7 +47,7 @@ The old WebSocket query parameters are not accepted because URLs are commonly lo
 - `POST /photos` accepts `X-Photo-Upload-Token`. Header-only legacy upload remains available only while `PHOTO_UPLOAD_TOKEN_LEGACY=1`.
 - Upload responses retain the stable `url` field and also return `signed_url` for temporary header-free rendering.
 - `GET /photos/{name}` accepts a valid HMAC URL or an authenticated owner/current partner request.
-- `PHOTOS_PUBLIC_LEGACY=1` makes unsigned managed photo URLs public and should normally remain disabled.
+- `PHOTOS_PUBLIC_LEGACY=1` temporarily keeps unsigned managed photo URLs public for old clients. Disable it after the signed-link rollout.
 
 ## Validation
 

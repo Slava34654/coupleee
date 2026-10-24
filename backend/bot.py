@@ -460,11 +460,12 @@ def choose_referral_rewards(user_id, choice, count):
         return None, f"Можно выбрать от 1 до {available}."
     now = utc_iso()
     ids = [reward["id"] for reward in rewards]
+    assert ids
     placeholders = ",".join("?" for _ in ids)
     if choice == "cash":
         con.execute(
-            f"UPDATE referral_rewards SET choice='cash',status='available',chosen_at=? "
-            f"WHERE id IN ({placeholders})",
+            "UPDATE referral_rewards SET choice='cash',status='available',chosen_at=? "
+            "WHERE id IN (" + placeholders + ")",
             (now, *ids),
         )
         result = {"choice": "cash", "count": count,
@@ -482,8 +483,8 @@ def choose_referral_rewards(user_id, choice, count):
         until = (start + datetime.timedelta(days=days)).isoformat()
         con.execute("UPDATE users SET premium_until=? WHERE id=?", (until, user_id))
         con.execute(
-            f"UPDATE referral_rewards SET choice='premium',status='applied',chosen_at=? "
-            f"WHERE id IN ({placeholders})",
+            "UPDATE referral_rewards SET choice='premium',status='applied',chosen_at=? "
+            "WHERE id IN (" + placeholders + ")",
             (now, *ids),
         )
         result = {"choice": "premium", "count": count,

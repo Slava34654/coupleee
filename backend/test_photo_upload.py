@@ -20,11 +20,13 @@ registered = client.post(
     json={"email": "photo-upload@example.com", "password": "secret123"},
 ).json()
 headers = {"X-Auth-Token": registered["token"]}
+issued = client.post("/photos/upload-token", headers=headers).json()
+upload_headers = {"X-Photo-Upload-Token": issued["upload_token"]}
 png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
 
 uploaded = client.post(
     "/photos",
-    headers=headers,
+    headers=upload_headers,
     files={"file": ("image_picker_cache", png, "application/octet-stream")},
 )
 assert uploaded.status_code == 200, uploaded.text
@@ -32,7 +34,11 @@ assert uploaded.json()["url"].endswith(".png"), uploaded.text
 
 rejected = client.post(
     "/photos",
-    headers=headers,
+    headers={
+        "X-Photo-Upload-Token": client.post(
+            "/photos/upload-token", headers=headers
+        ).json()["upload_token"]
+    },
     files={"file": ("fake.png", b"not an image", "image/png")},
 )
 assert rejected.status_code == 400, rejected.text

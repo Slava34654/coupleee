@@ -1,1 +1,1 @@
-run = "python -m pip install -r backend/requirements.txt && python -m uvicorn backend.main:app --host 0.0.0.0 --port $PORT"
+run = "python -m pip install -r backend/requirements.txt && python -m uvicorn backend.main:app --host 0.0.0.0 --port $PORT --no-access-log"

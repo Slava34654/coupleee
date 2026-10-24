@@ -12,6 +12,13 @@ down_revision = "0007_referral_payouts"
 branch_labels = None
 depends_on = None
 
+PHOTO_SOURCE_TABLES = frozenset(
+    {"users", "journal", "wishlist", "pack_a", "widget_photos", "community_map_posts"}
+)
+PHOTO_SOURCE_COLUMNS = frozenset(
+    {"id", "user_id", "author_id", "created_by_user_id", "avatar", "photo"}
+)
+
 
 def upgrade() -> None:
     op.execute(
@@ -32,6 +39,9 @@ def upgrade() -> None:
         ("widget_photos", "user_id", "photo"),
         ("community_map_posts", "created_by_user_id", "photo"),
     ):
+        assert table in PHOTO_SOURCE_TABLES
+        assert user_column in PHOTO_SOURCE_COLUMNS
+        assert photo_column in PHOTO_SOURCE_COLUMNS
         op.execute(
             f"INSERT OR IGNORE INTO photo_owners(name,user_id,created_at) "
             f"SELECT substr({photo_column},instr({photo_column},'/photos/')+8),"

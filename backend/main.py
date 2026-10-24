@@ -90,15 +90,18 @@ PHOTO_MAX_BYTES = int(os.environ.get("PHOTO_MAX_BYTES", str(5 * 1024 * 1024)))
 PHOTO_USER_QUOTA_BYTES = int(
     os.environ.get("PHOTO_USER_QUOTA_BYTES", str(250 * 1024 * 1024))
 )
+PHOTO_TOTAL_QUOTA_BYTES = int(
+    os.environ.get("PHOTO_TOTAL_QUOTA_BYTES", str(5 * 1024 * 1024 * 1024))
+)
 PHOTO_DAILY_BYTES = int(os.environ.get("PHOTO_DAILY_BYTES", str(50 * 1024 * 1024)))
 PHOTO_UPLOAD_TOKEN_TTL_MS = int(os.environ.get("PHOTO_UPLOAD_TOKEN_TTL_MS", "120000"))
-PHOTO_UPLOAD_WINDOW_MS = int(os.environ.get("PHOTO_UPLOAD_WINDOW_MS", "900000"))
-PHOTO_UPLOAD_USER_LIMIT = int(os.environ.get("PHOTO_UPLOAD_USER_LIMIT", "10"))
-PHOTO_UPLOAD_IP_LIMIT = int(os.environ.get("PHOTO_UPLOAD_IP_LIMIT", "50"))
+PHOTO_UPLOAD_WINDOW_MS = int(os.environ.get("PHOTO_UPLOAD_WINDOW_MS", "3600000"))
+PHOTO_UPLOAD_USER_LIMIT = int(os.environ.get("PHOTO_UPLOAD_USER_LIMIT", "20"))
+PHOTO_UPLOAD_IP_LIMIT = int(os.environ.get("PHOTO_UPLOAD_IP_LIMIT", "20"))
 PHOTO_UPLOAD_TOKEN_LEGACY = os.environ.get(
-    "PHOTO_UPLOAD_TOKEN_LEGACY", "1"
+    "PHOTO_UPLOAD_TOKEN_LEGACY", "0"
 ).lower() in {"1", "true", "yes"}
-PHOTOS_PUBLIC_LEGACY = os.environ.get("PHOTOS_PUBLIC_LEGACY", "0").lower() in {
+PHOTOS_PUBLIC_LEGACY = os.environ.get("PHOTOS_PUBLIC_LEGACY", "1").lower() in {
     "1",
     "true",
     "yes",
@@ -106,11 +109,11 @@ PHOTOS_PUBLIC_LEGACY = os.environ.get("PHOTOS_PUBLIC_LEGACY", "0").lower() in {
 PHOTO_URL_HMAC_SECRET = os.environ.get("PHOTO_URL_HMAC_SECRET", "").encode("utf-8")
 _ephemeral_photo_secret = secrets.token_bytes(32)
 WS_AUTH_TIMEOUT_SECONDS = float(os.environ.get("WS_AUTH_TIMEOUT_SECONDS", "5"))
+WS_IDLE_TIMEOUT_SECONDS = float(os.environ.get("WS_IDLE_TIMEOUT_SECONDS", "60"))
 WS_MAX_MESSAGE_BYTES = int(os.environ.get("WS_MAX_MESSAGE_BYTES", "4096"))
 _s3 = None
 app = FastAPI(title="Enrwine API", version="1.0")
-# Токен текущего HTTP-запроса (заголовок X-Auth-Token). WebSocket идёт мимо
-# middleware — там токен передаётся явным query-параметром.
+# HTTP token comes from X-Auth-Token. WebSocket authenticates in its first message.
 _request_token: ContextVar[str] = ContextVar("request_token", default="")
 _request_user: ContextVar[object | None] = ContextVar("request_user", default=None)
 
@@ -2053,7 +2056,7 @@ def init_db():
     con = db()
     c = con.cursor()
     valid_genres = tuple(MOVIE_GENRES)
-    placeholders = ",".join("?" for _ in valid_genres)
+    placeholders = sql_placeholders(len(valid_genres))
     obsolete_rounds = c.execute(
         "SELECT id FROM movie_rounds WHERE id IN ("
         "SELECT MAX(id) FROM movie_rounds GROUP BY pair_low_id,pair_high_id"
@@ -2148,10 +2151,10 @@ def init_db():
         for category in QUIZ_CATEGORIES
         for position in range(len(category["subtopics"]))
     ]
-    valid_placeholders = ",".join("?" for _ in valid_quiz_keys)
+    valid_placeholders = sql_placeholders(len(valid_quiz_keys))
     stale_quizzes = c.execute(
-        f"SELECT id FROM quizzes WHERE seed_key IS NOT NULL "
-        f"AND seed_key NOT IN ({valid_placeholders})",
+        "SELECT id FROM quizzes WHERE seed_key IS NOT NULL "
+        "AND seed_key NOT IN (" + valid_placeholders + ")",
         valid_quiz_keys,
     ).fetchall()
     for stale_quiz in stale_quizzes:
@@ -2344,7 +2347,13 @@ async def ws_ep(ws: WebSocket):
         )
     try:
         while True:
-            raw_message = await ws.receive_text()
+            try:
+                raw_message = await asyncio.wait_for(
+                    ws.receive_text(), timeout=WS_IDLE_TIMEOUT_SECONDS
+                )
+            except TimeoutError:
+                await ws.close(code=4408, reason="idle timeout")
+                break
             if len(raw_message.encode("utf-8")) > WS_MAX_MESSAGE_BYTES:
                 await ws.close(code=1009, reason="message too large")
                 break
@@ -2405,15 +2414,18 @@ SQL_FRAGMENT_ALLOWLIST = frozenset(
 
 
 def sql_identifier(value: str) -> str:
-    if value not in SQL_IDENTIFIER_ALLOWLIST:
-        raise ValueError("SQL identifier is not allowed")
+    assert value in SQL_IDENTIFIER_ALLOWLIST, "SQL identifier is not allowed"
     return value
 
 
 def sql_fragment(value: str) -> str:
-    if value not in SQL_FRAGMENT_ALLOWLIST:
-        raise ValueError("SQL fragment is not allowed")
+    assert value in SQL_FRAGMENT_ALLOWLIST, "SQL fragment is not allowed"
     return value
+
+
+def sql_placeholders(count: int) -> str:
+    assert count > 0, "SQL value list must not be empty"
+    return ",".join("?" for _ in range(count))
 
 
 def lookup_couple(user_id: int):
@@ -2438,10 +2450,15 @@ def couple_of(user_id: int):
     Токен выдаётся при создании/входе и хранится на устройстве.
     Без верного X-Auth-Token — 401 (id подряд не перебрать).
     """
-    current = _request_user.get() or authenticated_user()
-    if int(current["id"]) != user_id:
+    identity = _request_user.get()
+    if identity:
+        me, partner = identity
+    else:
+        me = authenticated_user()
+        me, partner = lookup_couple(int(me["id"]))
+    if int(me["id"]) != user_id:
         raise HTTPException(403, "token does not belong to user_id")
-    return lookup_couple(user_id)
+    return me, partner
 
 
 def user_for_token(token: str):
@@ -2466,9 +2483,11 @@ def authenticated_user():
 
 
 def current_user():
-    user = authenticated_user()
-    _request_user.set(user)
-    return user
+    me = authenticated_user()
+    me, partner = lookup_couple(int(me["id"]))
+    identity = (me, partner)
+    _request_user.set(identity)
+    return identity
 
 
 protected = APIRouter(dependencies=[Depends(current_user)])
@@ -2549,7 +2568,12 @@ def touch_streak_days(user_id: int) -> int:
                 else sql_fragment(date_expr)
             )
             for row in con.execute(
-                f"SELECT DISTINCT {date_expr} d FROM {table} WHERE user_id=?", (uid,)
+                "SELECT DISTINCT "
+                + date_expr
+                + " d FROM "
+                + table
+                + " WHERE user_id=?",
+                (uid,),
             ):
                 days.add(row["d"])
         return days
@@ -3167,7 +3191,8 @@ async def delete_account(body: DeleteAccountIn):
             photo_values.extend(
                 row[column] or ""
                 for row in con.execute(
-                    f"SELECT {column} FROM {table} WHERE {where}", params
+                    "SELECT " + column + " FROM " + table + " WHERE " + where,
+                    params,
                 ).fetchall()
             )
         photo_names.update(
@@ -3220,7 +3245,7 @@ async def delete_account(body: DeleteAccountIn):
         for table in ("wishlist", "couple_games", "companions"):
             table = sql_identifier(table)
             con.execute(
-                f"DELETE FROM {table} WHERE pair_key=? OR pair_key LIKE ? "
+                "DELETE FROM " + table + " WHERE pair_key=? OR pair_key LIKE ? "
                 "OR pair_key LIKE ?",
                 pair_params,
             )
@@ -3243,7 +3268,7 @@ async def delete_account(body: DeleteAccountIn):
             "locations",
         ):
             table = sql_identifier(table)
-            con.execute(f"DELETE FROM {table} WHERE user_id=?", (uid,))
+            con.execute("DELETE FROM " + table + " WHERE user_id=?", (uid,))
         telegram = con.execute(
             "SELECT tg_id FROM tg WHERE user_id=?", (uid,)
         ).fetchone()
@@ -3291,7 +3316,9 @@ async def delete_account(body: DeleteAccountIn):
             column = sql_identifier(column)
             retained_photos.extend(
                 row[column] or ""
-                for row in con.execute(f"SELECT {column} FROM {table}").fetchall()
+                for row in con.execute(
+                    "SELECT " + column + " FROM " + table
+                ).fetchall()
             )
         retained_names = {
             name for value in retained_photos if (name := managed_photo_name(value))
@@ -4239,12 +4266,13 @@ def tap_status(user_id: int):
 def moods_feed(user_id: int):
     me, partner = couple_of(user_id)
     ids = [user_id] + ([partner["id"]] if partner else [])
-    q = ",".join("?" * len(ids))
+    q = sql_placeholders(len(ids))
     con = db()
     rows = con.execute(
-        f"SELECT m.mood,m.note,m.ts,u.name author FROM moods m "
-        f"JOIN users u ON u.id=m.user_id WHERE m.user_id IN ({q}) "
-        f"ORDER BY m.id DESC LIMIT 14",
+        "SELECT m.mood,m.note,m.ts,u.name author FROM moods m "
+        "JOIN users u ON u.id=m.user_id WHERE m.user_id IN ("
+        + q
+        + ") ORDER BY m.id DESC LIMIT 14",
         ids,
     ).fetchall()
     con.close()
@@ -4365,19 +4393,19 @@ def stats(user_id: int):
     me, partner = couple_of(user_id)
     pid = partner["id"] if partner else None
     ids = [user_id] + ([pid] if pid else [])
-    q = ",".join("?" * len(ids))
+    q = sql_placeholders(len(ids))
     con = db()
     answers = con.execute(
-        f"SELECT COUNT(*) n FROM answers WHERE user_id IN ({q})", ids
+        "SELECT COUNT(*) n FROM answers WHERE user_id IN (" + q + ")", ids
     ).fetchone()["n"]
     answers += con.execute(
-        f"SELECT COUNT(*) n FROM pack_a WHERE user_id IN ({q})", ids
+        "SELECT COUNT(*) n FROM pack_a WHERE user_id IN (" + q + ")", ids
     ).fetchone()["n"]
     moods = con.execute(
-        f"SELECT COUNT(*) n FROM moods WHERE user_id IN ({q})", ids
+        "SELECT COUNT(*) n FROM moods WHERE user_id IN (" + q + ")", ids
     ).fetchone()["n"]
     moments = con.execute(
-        f"SELECT COUNT(*) n FROM journal WHERE user_id IN ({q})", ids
+        "SELECT COUNT(*) n FROM journal WHERE user_id IN (" + q + ")", ids
     ).fetchone()["n"]
     compats = []
     if pid:
@@ -4706,6 +4734,11 @@ def create_photo_upload_token(request: Request):
         ).fetchone()[0]
         if int(used_bytes) + PHOTO_MAX_BYTES > PHOTO_USER_QUOTA_BYTES:
             raise HTTPException(413, "photo storage quota exceeded")
+        total_bytes = con.execute(
+            "SELECT COALESCE(SUM(size_bytes),0) FROM photo_owners"
+        ).fetchone()[0]
+        if int(total_bytes) + PHOTO_MAX_BYTES > PHOTO_TOTAL_QUOTA_BYTES:
+            raise HTTPException(507, "photo storage is full")
         usage = con.execute(
             "SELECT day_utc,day_uploaded_bytes FROM photo_upload_usage WHERE user_id=?",
             (user["id"],),
@@ -4801,6 +4834,34 @@ async def stream_photo_to_temp(file: UploadFile, max_bytes: int) -> tuple[str, i
     return temp_path, total, extension
 
 
+def apply_legacy_photo_upload_limits(request: Request, user) -> None:
+    now_ms = unix_ms()
+    client_ip = request.client.host if request.client else "unknown"
+    con = db()
+    try:
+        con.execute("BEGIN IMMEDIATE")
+        apply_photo_upload_limit(
+            con,
+            "user",
+            photo_limit_key(str(user["id"])),
+            PHOTO_UPLOAD_USER_LIMIT,
+            now_ms,
+        )
+        apply_photo_upload_limit(
+            con,
+            "ip",
+            photo_limit_key(client_ip),
+            PHOTO_UPLOAD_IP_LIMIT,
+            now_ms,
+        )
+        con.commit()
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
 @app.post("/photos")
 async def upload_photo(request: Request, file: UploadFile = File(...)):
     upload_token = request.headers.get("x-photo-upload-token", "")
@@ -4808,6 +4869,7 @@ async def upload_photo(request: Request, file: UploadFile = File(...)):
         user, max_bytes = consume_photo_upload_token(upload_token)
     elif PHOTO_UPLOAD_TOKEN_LEGACY:
         user = authenticated_user()
+        apply_legacy_photo_upload_limits(request, user)
         max_bytes = PHOTO_MAX_BYTES
     else:
         raise HTTPException(401, "photo upload token required")
@@ -4852,6 +4914,11 @@ async def upload_photo(request: Request, file: UploadFile = File(...)):
         ).fetchone()[0]
         if int(used_bytes) + size_bytes > PHOTO_USER_QUOTA_BYTES:
             raise HTTPException(413, "photo storage quota exceeded")
+        total_bytes = con.execute(
+            "SELECT COALESCE(SUM(size_bytes),0) FROM photo_owners"
+        ).fetchone()[0]
+        if int(total_bytes) + size_bytes > PHOTO_TOTAL_QUOTA_BYTES:
+            raise HTTPException(507, "photo storage is full")
         today_utc = utc_today().isoformat()
         usage = con.execute(
             "SELECT day_utc,day_uploaded_bytes FROM photo_upload_usage WHERE user_id=?",
@@ -5107,9 +5174,11 @@ async def event_add(body: EventIn):
 def events(user_id: int):
     me, partner = couple_of(user_id)
     ids = [user_id] + ([partner["id"]] if partner else [])
-    q = ",".join("?" * len(ids))
+    q = sql_placeholders(len(ids))
     con = db()
-    rows = con.execute(f"SELECT * FROM events WHERE user_id IN ({q})", ids).fetchall()
+    rows = con.execute(
+        "SELECT * FROM events WHERE user_id IN (" + q + ")", ids
+    ).fetchall()
     con.close()
     now = utc_today()
     out = []

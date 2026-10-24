@@ -15,6 +15,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(main, "DB", str(tmp_path / "secure-photos.db"))
     monkeypatch.setattr(main, "PHOTO_DIR", str(tmp_path / "photos"))
     monkeypatch.setattr(main, "PHOTO_UPLOAD_TOKEN_LEGACY", False)
+    monkeypatch.setattr(main, "PHOTOS_PUBLIC_LEGACY", False)
     monkeypatch.setattr(main, "PHOTO_URL_HMAC_SECRET", b"test-photo-secret")
     monkeypatch.setattr(main, "_s3", None)
     main.init_db()
@@ -105,3 +106,24 @@ def test_storage_quota_is_checked_before_issuing_token(client, monkeypatch):
 
     response = client.post("/photos/upload-token", headers=auth(user))
     assert response.status_code == 413
+
+
+def test_global_storage_quota_is_checked_before_issuing_token(client, monkeypatch):
+    monkeypatch.setattr(main, "PHOTO_TOTAL_QUOTA_BYTES", main.PHOTO_MAX_BYTES - 1)
+    user = register(client)
+
+    response = client.post("/photos/upload-token", headers=auth(user))
+    assert response.status_code == 507
+
+
+def test_upload_token_ip_limit_applies_across_users(client, monkeypatch):
+    monkeypatch.setattr(main, "PHOTO_UPLOAD_IP_LIMIT", 1)
+    first = register(client)
+    second_response = client.post(
+        "/auth/register",
+        json={"email": "second-photos@example.com", "password": "secret123"},
+    )
+    second = second_response.json()
+    assert client.post("/photos/upload-token", headers=auth(first)).status_code == 200
+    response = client.post("/photos/upload-token", headers=auth(second))
+    assert response.status_code == 429
