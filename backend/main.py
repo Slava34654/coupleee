@@ -17,7 +17,7 @@ from fastapi import (
     BackgroundTasks,
     Request,
 )
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
@@ -28,6 +28,7 @@ from contextvars import ContextVar
 from starlette.middleware.base import BaseHTTPMiddleware
 import secrets
 import hashlib
+import hmac
 import base64
 import sqlite3
 import datetime
@@ -36,6 +37,8 @@ import math
 import os
 import random
 import string
+import tempfile
+import time
 import uuid
 import unicodedata
 from urllib.error import HTTPError, URLError
@@ -80,6 +83,25 @@ S3_ACCESS_KEY_ID = os.environ.get("S3_ACCESS_KEY_ID", "").strip()
 S3_SECRET_ACCESS_KEY = os.environ.get("S3_SECRET_ACCESS_KEY", "").strip()
 S3_PHOTO_PREFIX = os.environ.get("S3_PHOTO_PREFIX", "photos/").strip("/") + "/"
 S3_URL_TTL = int(os.environ.get("S3_URL_TTL", "3600"))
+PHOTO_MAX_BYTES = int(os.environ.get("PHOTO_MAX_BYTES", str(5 * 1024 * 1024)))
+PHOTO_USER_QUOTA_BYTES = int(
+    os.environ.get("PHOTO_USER_QUOTA_BYTES", str(250 * 1024 * 1024))
+)
+PHOTO_DAILY_BYTES = int(os.environ.get("PHOTO_DAILY_BYTES", str(50 * 1024 * 1024)))
+PHOTO_UPLOAD_TOKEN_TTL_MS = int(os.environ.get("PHOTO_UPLOAD_TOKEN_TTL_MS", "120000"))
+PHOTO_UPLOAD_WINDOW_MS = int(os.environ.get("PHOTO_UPLOAD_WINDOW_MS", "900000"))
+PHOTO_UPLOAD_USER_LIMIT = int(os.environ.get("PHOTO_UPLOAD_USER_LIMIT", "10"))
+PHOTO_UPLOAD_IP_LIMIT = int(os.environ.get("PHOTO_UPLOAD_IP_LIMIT", "50"))
+PHOTO_UPLOAD_TOKEN_LEGACY = os.environ.get(
+    "PHOTO_UPLOAD_TOKEN_LEGACY", "1"
+).lower() in {"1", "true", "yes"}
+PHOTOS_PUBLIC_LEGACY = os.environ.get("PHOTOS_PUBLIC_LEGACY", "0").lower() in {
+    "1",
+    "true",
+    "yes",
+}
+PHOTO_URL_HMAC_SECRET = os.environ.get("PHOTO_URL_HMAC_SECRET", "").encode("utf-8")
+_ephemeral_photo_secret = secrets.token_bytes(32)
 _s3 = None
 app = FastAPI(title="Enrwine API", version="1.0")
 # Токен текущего HTTP-запроса (заголовок X-Auth-Token). WebSocket идёт мимо
@@ -135,6 +157,10 @@ def new_token() -> str:
 
 def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def unix_ms() -> int:
+    return time.time_ns() // 1_000_000
 
 
 # ---------------- seed-данные ----------------
@@ -2360,6 +2386,8 @@ PUBLIC_HTTP_ROUTES = frozenset(
         ("GET", "/quizzes"),
         ("GET", "/ideas"),
         ("GET", "/idea/random"),
+        ("POST", "/photos"),
+        ("GET", "/photos/{name}"),
         ("GET", "/movies/poster/{filename}"),
     }
 )
@@ -4466,47 +4494,275 @@ def photo_extension(data: bytes):
     return None
 
 
-@protected.post("/photos")
-async def upload_photo(file: UploadFile = File(...)):
-    user = authenticated_user()
-    data = await file.read()
-    if len(data) > 5 * 1024 * 1024:
-        raise HTTPException(400, "max 5MB")
-    extension = photo_extension(data)
-    if extension is None:
-        raise HTTPException(400, "only jpeg/png/webp/gif images")
-    os.makedirs(PHOTO_DIR, exist_ok=True)
-    import uuid as _uuid
+def photo_signing_secret() -> bytes:
+    return PHOTO_URL_HMAC_SECRET or _ephemeral_photo_secret
 
-    name = _uuid.uuid4().hex + extension
-    client = s3_client()
-    if client is None:
-        with open(os.path.join(PHOTO_DIR, name), "wb") as f:
-            f.write(data)
-    else:
-        content_types = {
-            ".jpg": "image/jpeg",
-            ".png": "image/png",
-            ".gif": "image/gif",
-            ".webp": "image/webp",
-        }
-        try:
-            await run_in_threadpool(
-                client.put_object,
-                Bucket=S3_BUCKET,
-                Key=s3_photo_key(name),
-                Body=data,
-                ContentType=content_types[extension],
-                ServerSideEncryption="AES256",
-            )
-        except Exception as exc:
-            print(f"S3 upload failed: {type(exc).__name__}")
-            raise HTTPException(503, "photo storage unavailable")
+
+def signed_photo_url(name: str, expires_at: int | None = None) -> str:
+    expires_at = expires_at or int(time.time()) + S3_URL_TTL
+    path = f"/photos/{name}"
+    message = f"GET\n{path}\n{expires_at}".encode("utf-8")
+    signature = hmac.new(photo_signing_secret(), message, hashlib.sha256).digest()
+    encoded = base64.urlsafe_b64encode(signature).rstrip(b"=").decode("ascii")
+    return f"{path}?exp={expires_at}&sig={encoded}"
+
+
+def valid_photo_signature(request: Request, name: str) -> bool:
+    expires = request.query_params.getlist("exp")
+    signatures = request.query_params.getlist("sig")
+    if len(expires) != 1 or len(signatures) != 1:
+        return False
+    try:
+        expires_at = int(expires[0])
+    except ValueError:
+        return False
+    now = int(time.time())
+    if expires_at < now or expires_at > now + S3_URL_TTL:
+        return False
+    expected = signed_photo_url(name, expires_at).rsplit("sig=", 1)[-1]
+    return secrets.compare_digest(expected, signatures[0])
+
+
+def photo_limit_key(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def apply_photo_upload_limit(
+    con, scope: str, key_hash: str, limit: int, now_ms: int
+) -> None:
+    row = con.execute(
+        "SELECT window_started_at_ms,issued FROM photo_upload_limits "
+        "WHERE scope=? AND key_hash=?",
+        (scope, key_hash),
+    ).fetchone()
+    if not row or now_ms - int(row["window_started_at_ms"]) >= PHOTO_UPLOAD_WINDOW_MS:
+        con.execute(
+            "INSERT OR REPLACE INTO photo_upload_limits"
+            "(scope,key_hash,window_started_at_ms,issued) VALUES(?,?,?,1)",
+            (scope, key_hash, now_ms),
+        )
+        return
+    if int(row["issued"]) >= limit:
+        retry_after = max(
+            1,
+            (PHOTO_UPLOAD_WINDOW_MS - (now_ms - int(row["window_started_at_ms"])))
+            // 1000,
+        )
+        raise HTTPException(
+            429, "too many photo uploads", headers={"Retry-After": str(retry_after)}
+        )
+    con.execute(
+        "UPDATE photo_upload_limits SET issued=issued+1 "
+        "WHERE scope=? AND key_hash=?",
+        (scope, key_hash),
+    )
+
+
+@protected.post("/photos/upload-token")
+def create_photo_upload_token(request: Request):
+    user = authenticated_user()
+    now_ms = unix_ms()
+    today_utc = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+    client_ip = request.client.host if request.client else "unknown"
+    raw_token = secrets.token_urlsafe(32)
     con = db()
     try:
+        con.execute("BEGIN IMMEDIATE")
+        con.execute("DELETE FROM photo_upload_tokens WHERE expires_at_ms<=?", (now_ms,))
+        apply_photo_upload_limit(
+            con,
+            "user",
+            photo_limit_key(str(user["id"])),
+            PHOTO_UPLOAD_USER_LIMIT,
+            now_ms,
+        )
+        apply_photo_upload_limit(
+            con,
+            "ip",
+            photo_limit_key(client_ip),
+            PHOTO_UPLOAD_IP_LIMIT,
+            now_ms,
+        )
+        used_bytes = con.execute(
+            "SELECT COALESCE(SUM(size_bytes),0) FROM photo_owners WHERE user_id=?",
+            (user["id"],),
+        ).fetchone()[0]
+        if int(used_bytes) + PHOTO_MAX_BYTES > PHOTO_USER_QUOTA_BYTES:
+            raise HTTPException(413, "photo storage quota exceeded")
+        usage = con.execute(
+            "SELECT day_utc,day_uploaded_bytes FROM photo_upload_usage WHERE user_id=?",
+            (user["id"],),
+        ).fetchone()
+        day_bytes = (
+            int(usage["day_uploaded_bytes"])
+            if usage and usage["day_utc"] == today_utc
+            else 0
+        )
+        if day_bytes + PHOTO_MAX_BYTES > PHOTO_DAILY_BYTES:
+            raise HTTPException(429, "daily photo upload quota exceeded")
         con.execute(
-            "INSERT INTO photo_owners(name,user_id,created_at) VALUES(?,?,?)",
-            (name, user["id"], datetime.datetime.now().isoformat(timespec="seconds")),
+            "INSERT INTO photo_upload_tokens"
+            "(token_hash,user_id,expires_at_ms,max_bytes,consumed_at_ms) "
+            "VALUES(?,?,?,?,NULL)",
+            (
+                hash_token(raw_token),
+                user["id"],
+                now_ms + PHOTO_UPLOAD_TOKEN_TTL_MS,
+                PHOTO_MAX_BYTES,
+            ),
+        )
+        con.commit()
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+    return {
+        "upload_token": raw_token,
+        "expires_at_ms": now_ms + PHOTO_UPLOAD_TOKEN_TTL_MS,
+        "max_bytes": PHOTO_MAX_BYTES,
+    }
+
+
+def consume_photo_upload_token(raw_token: str):
+    now_ms = unix_ms()
+    con = db()
+    try:
+        con.execute("BEGIN IMMEDIATE")
+        token_hash = hash_token(raw_token)
+        token = con.execute(
+            "SELECT user_id,max_bytes FROM photo_upload_tokens "
+            "WHERE token_hash=? AND consumed_at_ms IS NULL AND expires_at_ms>?",
+            (token_hash, now_ms),
+        ).fetchone()
+        if not token:
+            raise HTTPException(401, "invalid or expired photo upload token")
+        updated = con.execute(
+            "UPDATE photo_upload_tokens SET consumed_at_ms=? "
+            "WHERE token_hash=? AND consumed_at_ms IS NULL",
+            (now_ms, token_hash),
+        ).rowcount
+        if updated != 1:
+            raise HTTPException(401, "photo upload token already used")
+        user = con.execute(
+            "SELECT * FROM users WHERE id=?", (token["user_id"],)
+        ).fetchone()
+        con.commit()
+        return user, int(token["max_bytes"])
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
+async def stream_photo_to_temp(file: UploadFile, max_bytes: int) -> tuple[str, int, str]:
+    os.makedirs(PHOTO_DIR, exist_ok=True)
+    temporary = tempfile.NamedTemporaryFile(
+        mode="w+b", prefix=".upload-", dir=PHOTO_DIR, delete=False
+    )
+    temp_path = temporary.name
+    total = 0
+    prefix = b""
+    try:
+        while chunk := await file.read(64 * 1024):
+            total += len(chunk)
+            if total > max_bytes:
+                raise HTTPException(400, f"max {max_bytes // (1024 * 1024)}MB")
+            if len(prefix) < 16:
+                prefix += chunk[: 16 - len(prefix)]
+            await run_in_threadpool(temporary.write, chunk)
+    except Exception:
+        temporary.close()
+        os.unlink(temp_path)
+        raise
+    temporary.close()
+    extension = photo_extension(prefix)
+    if extension is None:
+        os.unlink(temp_path)
+        raise HTTPException(400, "only jpeg/png/webp/gif images")
+    return temp_path, total, extension
+
+
+@app.post("/photos")
+async def upload_photo(request: Request, file: UploadFile = File(...)):
+    upload_token = request.headers.get("x-photo-upload-token", "")
+    if upload_token:
+        user, max_bytes = consume_photo_upload_token(upload_token)
+    elif PHOTO_UPLOAD_TOKEN_LEGACY:
+        user = authenticated_user()
+        max_bytes = PHOTO_MAX_BYTES
+    else:
+        raise HTTPException(401, "photo upload token required")
+    temp_path, size_bytes, extension = await stream_photo_to_temp(file, max_bytes)
+    name = uuid.uuid4().hex + extension
+    client = s3_client()
+    try:
+        if client is None:
+            await run_in_threadpool(
+                os.replace, temp_path, os.path.join(PHOTO_DIR, name)
+            )
+            temp_path = ""
+        else:
+            content_types = {
+                ".jpg": "image/jpeg",
+                ".png": "image/png",
+                ".gif": "image/gif",
+                ".webp": "image/webp",
+            }
+            await run_in_threadpool(
+                client.upload_file,
+                temp_path,
+                S3_BUCKET,
+                s3_photo_key(name),
+                ExtraArgs={
+                    "ContentType": content_types[extension],
+                    "ServerSideEncryption": "AES256",
+                },
+            )
+    except Exception as exc:
+        print(f"S3 upload failed: {type(exc).__name__}")
+        raise HTTPException(503, "photo storage unavailable")
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            os.unlink(temp_path)
+    con = db()
+    try:
+        con.execute("BEGIN IMMEDIATE")
+        used_bytes = con.execute(
+            "SELECT COALESCE(SUM(size_bytes),0) FROM photo_owners WHERE user_id=?",
+            (user["id"],),
+        ).fetchone()[0]
+        if int(used_bytes) + size_bytes > PHOTO_USER_QUOTA_BYTES:
+            raise HTTPException(413, "photo storage quota exceeded")
+        today_utc = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+        usage = con.execute(
+            "SELECT day_utc,day_uploaded_bytes FROM photo_upload_usage WHERE user_id=?",
+            (user["id"],),
+        ).fetchone()
+        day_bytes = (
+            int(usage["day_uploaded_bytes"])
+            if usage and usage["day_utc"] == today_utc
+            else 0
+        )
+        if day_bytes + size_bytes > PHOTO_DAILY_BYTES:
+            raise HTTPException(429, "daily photo upload quota exceeded")
+        con.execute(
+            "INSERT INTO photo_owners(name,user_id,created_at,size_bytes) VALUES(?,?,?,?)",
+            (
+                name,
+                user["id"],
+                datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+                size_bytes,
+            ),
+        )
+        con.execute(
+            "INSERT INTO photo_upload_usage(user_id,day_utc,day_uploaded_bytes) "
+            "VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET "
+            "day_uploaded_bytes=CASE WHEN day_utc=excluded.day_utc "
+            "THEN day_uploaded_bytes+excluded.day_uploaded_bytes "
+            "ELSE excluded.day_uploaded_bytes END,day_utc=excluded.day_utc",
+            (user["id"], today_utc, size_bytes),
         )
         con.commit()
     except Exception:
@@ -4515,16 +4771,18 @@ async def upload_photo(file: UploadFile = File(...)):
         raise
     finally:
         con.close()
-    return {"url": f"/photos/{name}"}
+    url = f"/photos/{name}"
+    return {"url": url, "signed_url": signed_photo_url(name)}
 
 
-@protected.get("/photos/{name}")
-def get_photo(name: str):
+@app.get("/photos/{name}")
+def get_photo(name: str, request: Request):
     if managed_photo_name(f"/photos/{name}") != name:
         raise HTTPException(404, "not found")
-    user = authenticated_user()
-    if not can_read_photo(name, user):
-        raise HTTPException(404, "not found")
+    if not valid_photo_signature(request, name) and not PHOTOS_PUBLIC_LEGACY:
+        user = authenticated_user()
+        if not can_read_photo(name, user):
+            raise HTTPException(404, "not found")
     private_headers = {"Cache-Control": "private, no-store"}
     path = os.path.join(PHOTO_DIR, os.path.basename(name))
     if os.path.isfile(path):
@@ -4535,18 +4793,21 @@ def get_photo(name: str):
     try:
         result = client.get_object(Bucket=S3_BUCKET, Key=s3_photo_key(name))
         stream = result["Body"]
-        try:
-            content = stream.read()
-        finally:
-            stream.close()
     except Exception as exc:
         error = getattr(exc, "response", {}).get("Error", {})
         if error.get("Code") in {"NoSuchKey", "404"}:
             raise HTTPException(404, "not found")
         print(f"S3 download failed: {type(exc).__name__}")
         raise HTTPException(503, "photo storage unavailable")
-    return Response(
-        content,
+    def body_chunks():
+        try:
+            while chunk := stream.read(64 * 1024):
+                yield chunk
+        finally:
+            stream.close()
+
+    return StreamingResponse(
+        body_chunks(),
         media_type=result.get("ContentType") or "application/octet-stream",
         headers=private_headers,
     )
@@ -5949,6 +6210,12 @@ def community_map_upsert(body: CommunityMapPostIn):
     con = db()
     try:
         con.execute("BEGIN IMMEDIATE")
+        owner = con.execute(
+            "SELECT 1 FROM photo_owners WHERE name=? AND user_id IN (?,?)",
+            (photo_name, me["id"], partner["id"]),
+        ).fetchone()
+        if not owner:
+            raise HTTPException(403, "photo is not owned by this couple")
         existing = con.execute(
             "SELECT id FROM community_map_posts WHERE pair_low_id=? "
             "AND pair_high_id=? AND lat=? AND lon=?",

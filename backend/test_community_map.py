@@ -41,6 +41,14 @@ def create_post(client, user, lat=55.7558, lon=37.6173, **changes):
         "public_consent": True,
     }
     body.update(changes)
+    name = main.managed_photo_name(body["photo"])
+    if name:
+        with sqlite3.connect(main.DB) as con:
+            con.execute(
+                "INSERT OR IGNORE INTO photo_owners(name,user_id,created_at,size_bytes) "
+                "VALUES(?,?,?,0)",
+                (name, user["user_id"], "2026-10-24T12:00:00Z"),
+            )
     return client.post("/community/map", headers=headers(user), json=body)
 
 
@@ -131,6 +139,33 @@ def test_pending_is_private_until_second_approval(map_api):
     outsider_post = listing(client, outsider).json()[0]
     assert outsider_post["mine"] is False
     assert outsider_post["can_approve"] is False
+
+
+def test_cannot_publish_a_foreign_photo(map_api):
+    client = map_api
+    first, _ = create_pair(client)
+    outsider, _ = create_pair(client, "Other", "Pair")
+    foreign_photo = photo()
+    name = main.managed_photo_name(foreign_photo)
+    with sqlite3.connect(main.DB) as con:
+        con.execute(
+            "INSERT INTO photo_owners(name,user_id,created_at,size_bytes) VALUES(?,?,?,0)",
+            (name, outsider["user_id"], "2026-10-24T12:00:00Z"),
+        )
+
+    response = client.post(
+        "/community/map",
+        headers=headers(first),
+        json={
+            "user_id": first["user_id"],
+            "lat": 55.7558,
+            "lon": 37.6173,
+            "photo": foreign_photo,
+            "comment": "Stolen",
+            "public_consent": True,
+        },
+    )
+    assert response.status_code == 403
 
 
 def test_coordinates_keep_full_precision(map_api):
