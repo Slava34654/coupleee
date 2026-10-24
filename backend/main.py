@@ -124,6 +124,10 @@ def new_token() -> str:
     return secrets.token_hex(16)
 
 
+def hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
 # ---------------- seed-данные ----------------
 QUESTIONS = [
     "Какой фильм или сериал вы пересматривали бы вместе бесконечно?",
@@ -2297,9 +2301,10 @@ def couple_of(user_id: int):
     """
     me, partner = lookup_couple(user_id)
     cols = me.keys()
-    stored = me["token"] if "token" in cols else ""
+    stored = me["token_hash"] if "token_hash" in cols else ""
     tok = _request_token.get()
-    if not stored or not tok or not secrets.compare_digest(stored, tok):
+    supplied = hash_token(tok) if tok else ""
+    if not stored or not supplied or not secrets.compare_digest(stored, supplied):
         raise HTTPException(401, "unauthorized")
     expires_at = me["token_expires_at"] if "token_expires_at" in cols else 0
     now_ms = int(datetime.datetime.now().timestamp() * 1000)
@@ -2314,7 +2319,9 @@ def authenticated_user():
     if not token:
         raise HTTPException(401, "unauthorized")
     con = db()
-    user = con.execute("SELECT * FROM users WHERE token=?", (token,)).fetchone()
+    user = con.execute(
+        "SELECT * FROM users WHERE token_hash=?", (hash_token(token),)
+    ).fetchone()
     con.close()
     if not user:
         raise HTTPException(401, "unauthorized")
@@ -2773,15 +2780,15 @@ async def auth_register(body: AuthRegisterIn):
         now_ms = int(datetime.datetime.now().timestamp() * 1000)
         expires_at = now_ms + TOKEN_TTL_MS
         cur = con.execute(
-            "INSERT INTO users(name,pair_code,together_since,birth,avatar,token,token_expires_at,email,password_hash,pair_ready) "
-            "VALUES(?,?,?,?,?,?,?,?,?,0)",
+            "INSERT INTO users(name,pair_code,together_since,birth,avatar,token,token_hash,token_expires_at,email,password_hash,pair_ready) "
+            "VALUES(?,?,?,?,?,'',?,?,?,?,0)",
             (
                 email.split("@", 1)[0],
                 new_code(),
                 today(),
                 "",
                 "",
-                token,
+                hash_token(token),
                 expires_at,
                 email,
                 password_hash,
@@ -2833,8 +2840,8 @@ def auth_login(body: AuthLoginIn, request: Request):
     expires_at = now_ms + TOKEN_TTL_MS
     con = db()
     con.execute(
-        "UPDATE users SET token=?,token_expires_at=? WHERE id=?",
-        (token, expires_at, user["id"]),
+        "UPDATE users SET token='',token_hash=?,token_expires_at=? WHERE id=?",
+        (hash_token(token), expires_at, user["id"]),
     )
     con.commit()
     user = con.execute("SELECT * FROM users WHERE id=?", (user["id"],)).fetchone()
@@ -2927,12 +2934,16 @@ async def delete_account(body: DeleteAccountIn):
     con = db()
     try:
         con.execute("BEGIN IMMEDIATE")
-        current = con.execute("SELECT token FROM users WHERE id=?", (uid,)).fetchone()
+        current = con.execute(
+            "SELECT token_hash FROM users WHERE id=?", (uid,)
+        ).fetchone()
         request_token = _request_token.get()
         if (
             not current
             or not request_token
-            or not secrets.compare_digest(current["token"] or "", request_token)
+            or not secrets.compare_digest(
+                current["token_hash"] or "", hash_token(request_token)
+            )
         ):
             raise HTTPException(401, "unauthorized")
         photo_values = [me["avatar"] or ""]
@@ -3153,7 +3164,7 @@ async def pair_setup(body: PairSetupIn):
         con.close()
     if partner:
         await wsman.ping_couple(body.user_id, "pair")
-    return auth_response(user, me["token"])
+    return auth_response(user, _request_token.get())
 
 
 @app.post("/pair")
@@ -3166,9 +3177,17 @@ def pair_create(body: PairIn):
     tok = new_token()
     expires_at = int(datetime.datetime.now().timestamp() * 1000) + TOKEN_TTL_MS
     cur = con.execute(
-        "INSERT INTO users(name,pair_code,together_since,birth,avatar,token,token_expires_at) "
-        "VALUES(?,?,?,?,?,?,?)",
-        (body.name.strip(), code, since, body.birth, body.avatar, tok, expires_at),
+        "INSERT INTO users(name,pair_code,together_since,birth,avatar,token,token_hash,token_expires_at) "
+        "VALUES(?,?,?,?,?,'',?,?)",
+        (
+            body.name.strip(),
+            code,
+            since,
+            body.birth,
+            body.avatar,
+            hash_token(tok),
+            expires_at,
+        ),
     )
     con.commit()
     uid = cur.lastrowid
@@ -3194,15 +3213,15 @@ async def pair_join(body: JoinIn):
     tok = new_token()
     expires_at = int(datetime.datetime.now().timestamp() * 1000) + TOKEN_TTL_MS
     cur = con.execute(
-        "INSERT INTO users(name,pair_code,together_since,birth,avatar,token,token_expires_at) "
-        "VALUES(?,?,?,?,?,?,?)",
+        "INSERT INTO users(name,pair_code,together_since,birth,avatar,token,token_hash,token_expires_at) "
+        "VALUES(?,?,?,?,?,'',?,?)",
         (
             body.name.strip(),
             new_code(),
             other["together_since"],
             body.birth,
             body.avatar,
-            tok,
+            hash_token(tok),
             expires_at,
         ),
     )
@@ -3968,7 +3987,7 @@ async def pair_leave(user_id: int):
     await wsman.send(user_id, msg)
     if partner:
         await wsman.send(partner["id"], msg)
-    return auth_response(user, me["token"])
+    return auth_response(user, _request_token.get())
 
 
 # ---------------- обнимашки (tap-to-feel) ----------------

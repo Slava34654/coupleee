@@ -25,6 +25,45 @@ def register_user(client, email="test@example.com", password="secret123"):
     return response
 
 
+def test_database_stores_only_token_digest(client):
+    auth = register_user(client, "digest@example.com").json()
+
+    con = sqlite3.connect(main.DB)
+    stored_token, stored_hash = con.execute(
+        "SELECT token,token_hash FROM users WHERE id=?", (auth["user_id"],)
+    ).fetchone()
+    con.close()
+
+    assert stored_token == ""
+    assert stored_hash == main.hash_token(auth["token"])
+
+    response = client.get(
+        "/me",
+        params={"user_id": auth["user_id"]},
+        headers={"X-Auth-Token": auth["token"]},
+    )
+    assert response.status_code == 200
+
+
+def test_login_rotates_stored_token_digest(client):
+    registered = register_user(client, "rotate@example.com").json()
+    response = client.post(
+        "/auth/login",
+        json={"email": "rotate@example.com", "password": "secret123"},
+    )
+    assert response.status_code == 200
+    logged_in = response.json()
+    assert logged_in["token"] != registered["token"]
+
+    con = sqlite3.connect(main.DB)
+    stored_token, stored_hash = con.execute(
+        "SELECT token,token_hash FROM users WHERE id=?", (registered["user_id"],)
+    ).fetchone()
+    con.close()
+    assert stored_token == ""
+    assert stored_hash == main.hash_token(logged_in["token"])
+
+
 def test_login_locks_email_after_five_failed_attempts(client):
     register_user(client)
     for _ in range(4):
