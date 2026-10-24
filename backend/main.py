@@ -77,6 +77,7 @@ try:
         request_user,
         verify_password,
     )
+    from backend.app import create_app
 except ImportError:
     from database import upgrade_database
     from db import connect, initialize
@@ -92,14 +93,12 @@ except ImportError:
         request_user,
         verify_password,
     )
+    from app import create_app
 _ephemeral_photo_secret = EPHEMERAL_PHOTO_SECRET
 _s3 = None
-app = FastAPI(title="Enrwine API", version="1.0")
+app = create_app()
 _request_token = request_token
 _request_user = request_user
-
-
-app.add_middleware(AuthTokenMiddleware)
 
 
 def s3_configured() -> bool:
