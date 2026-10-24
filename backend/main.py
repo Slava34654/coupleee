@@ -30,6 +30,7 @@ import secrets
 import hashlib
 import hmac
 import base64
+import asyncio
 import sqlite3
 import datetime
 import json
@@ -102,6 +103,8 @@ PHOTOS_PUBLIC_LEGACY = os.environ.get("PHOTOS_PUBLIC_LEGACY", "0").lower() in {
 }
 PHOTO_URL_HMAC_SECRET = os.environ.get("PHOTO_URL_HMAC_SECRET", "").encode("utf-8")
 _ephemeral_photo_secret = secrets.token_bytes(32)
+WS_AUTH_TIMEOUT_SECONDS = float(os.environ.get("WS_AUTH_TIMEOUT_SECONDS", "5"))
+WS_MAX_MESSAGE_BYTES = int(os.environ.get("WS_MAX_MESSAGE_BYTES", "4096"))
 _s3 = None
 app = FastAPI(title="Enrwine API", version="1.0")
 # Токен текущего HTTP-запроса (заголовок X-Auth-Token). WebSocket идёт мимо
@@ -2250,8 +2253,9 @@ class WSManager:
     def __init__(self):
         self.conns: dict = {}
 
-    async def connect(self, ws, uid: int):
-        await ws.accept()
+    async def connect(self, ws, uid: int, *, accepted: bool = False):
+        if not accepted:
+            await ws.accept()
         self.conns.setdefault(uid, set()).add(ws)
 
     def drop(self, ws, uid: int):
@@ -2283,21 +2287,57 @@ wsman = WSManager()
 
 
 @app.websocket("/ws")
-async def ws_ep(ws: WebSocket, user_id: int, token: str = ""):
-    _request_token.set(token or "")
+async def ws_ep(ws: WebSocket):
+    await ws.accept()
     try:
-        me, partner = couple_of(user_id)
-    except HTTPException:
-        await ws.close()
+        raw_message = await asyncio.wait_for(
+            ws.receive_text(), timeout=WS_AUTH_TIMEOUT_SECONDS
+        )
+    except TimeoutError:
+        await ws.close(code=4408, reason="authentication timeout")
         return
-    await wsman.connect(ws, user_id)
+    except WebSocketDisconnect:
+        return
+    if len(raw_message.encode("utf-8")) > WS_MAX_MESSAGE_BYTES:
+        await ws.close(code=1009, reason="message too large")
+        return
+    try:
+        message = json.loads(raw_message)
+    except (TypeError, ValueError):
+        await ws.close(code=1008, reason="invalid authentication message")
+        return
+    if not isinstance(message, dict) or message.get("type") != "auth":
+        await ws.close(code=1008, reason="authentication required")
+        return
+    try:
+        me = user_for_token(str(message.get("token") or ""))
+    except HTTPException:
+        await ws.close(code=4401, reason="unauthorized")
+        return
+    user_id = int(me["id"])
+    _, partner = lookup_couple(user_id)
+    await wsman.connect(ws, user_id, accepted=True)
+    await ws.send_json({"type": "authenticated", "user_id": user_id})
     if partner:
         await wsman.send(
             partner["id"], {"type": "presence", "user_id": user_id, "online": True}
         )
     try:
         while True:
-            await ws.receive_text()  # keepalive от клиента, игнорируем
+            raw_message = await ws.receive_text()
+            if len(raw_message.encode("utf-8")) > WS_MAX_MESSAGE_BYTES:
+                await ws.close(code=1009, reason="message too large")
+                break
+            if raw_message == "ping":
+                continue
+            try:
+                message = json.loads(raw_message)
+            except (TypeError, ValueError):
+                await ws.close(code=1008, reason="invalid message")
+                break
+            if message != {"type": "ping"}:
+                await ws.close(code=1008, reason="unsupported message")
+                break
     except WebSocketDisconnect:
         pass
     finally:
@@ -2310,6 +2350,50 @@ async def ws_ep(ws: WebSocket, user_id: int, token: str = ""):
 
 def today():
     return datetime.date.today().isoformat()
+
+
+SQL_IDENTIFIER_ALLOWLIST = frozenset(
+    {
+        "answers",
+        "avatar",
+        "community_map_posts",
+        "companions",
+        "couple_games",
+        "events",
+        "journal",
+        "locations",
+        "moods",
+        "pack_a",
+        "photo",
+        "push_tokens",
+        "qdate",
+        "quiz_a",
+        "taps",
+        "users",
+        "widget_photos",
+        "wishlist",
+    }
+)
+SQL_FRAGMENT_ALLOWLIST = frozenset(
+    {
+        "author_id=? OR pair_key=? OR pair_key LIKE ? OR pair_key LIKE ?",
+        "pair_low_id=? OR pair_high_id=? OR created_by_user_id=?",
+        "substr(ts,1,10)",
+        "user_id=?",
+    }
+)
+
+
+def sql_identifier(value: str) -> str:
+    if value not in SQL_IDENTIFIER_ALLOWLIST:
+        raise ValueError("SQL identifier is not allowed")
+    return value
+
+
+def sql_fragment(value: str) -> str:
+    if value not in SQL_FRAGMENT_ALLOWLIST:
+        raise ValueError("SQL fragment is not allowed")
+    return value
 
 
 def lookup_couple(user_id: int):
@@ -2340,9 +2424,7 @@ def couple_of(user_id: int):
     return lookup_couple(user_id)
 
 
-def authenticated_user():
-    """Resolve the current session without trusting a caller-supplied user id."""
-    token = _request_token.get()
+def user_for_token(token: str):
     if not token:
         raise HTTPException(401, "unauthorized")
     con = db()
@@ -2356,6 +2438,11 @@ def authenticated_user():
     if not user["token_expires_at"] or int(user["token_expires_at"]) <= now_ms:
         raise HTTPException(401, "token expired")
     return user
+
+
+def authenticated_user():
+    """Resolve the current session without trusting a caller-supplied user id."""
+    return user_for_token(_request_token.get())
 
 
 def current_user():
@@ -2435,6 +2522,12 @@ def touch_streak_days(user_id: int) -> int:
             ("moods", "substr(ts,1,10)"),
             ("journal", "substr(ts,1,10)"),
         ):
+            table = sql_identifier(table)
+            date_expr = (
+                sql_identifier(date_expr)
+                if date_expr == "qdate"
+                else sql_fragment(date_expr)
+            )
             for row in con.execute(
                 f"SELECT DISTINCT {date_expr} d FROM {table} WHERE user_id=?", (uid,)
             ):
@@ -3048,6 +3141,9 @@ async def delete_account(body: DeleteAccountIn):
                 (uid, uid, uid),
             ),
         ):
+            table = sql_identifier(table)
+            column = sql_identifier(column)
+            where = sql_fragment(where)
             photo_values.extend(
                 row[column] or ""
                 for row in con.execute(
@@ -3102,6 +3198,7 @@ async def delete_account(body: DeleteAccountIn):
             (uid, uid, uid),
         )
         for table in ("wishlist", "couple_games", "companions"):
+            table = sql_identifier(table)
             con.execute(
                 f"DELETE FROM {table} WHERE pair_key=? OR pair_key LIKE ? "
                 "OR pair_key LIKE ?",
@@ -3125,6 +3222,7 @@ async def delete_account(body: DeleteAccountIn):
             "push_tokens",
             "locations",
         ):
+            table = sql_identifier(table)
             con.execute(f"DELETE FROM {table} WHERE user_id=?", (uid,))
         telegram = con.execute(
             "SELECT tg_id FROM tg WHERE user_id=?", (uid,)
@@ -3169,6 +3267,8 @@ async def delete_account(body: DeleteAccountIn):
             ("widget_photos", "photo"),
             ("community_map_posts", "photo"),
         ):
+            table = sql_identifier(table)
+            column = sql_identifier(column)
             retained_photos.extend(
                 row[column] or ""
                 for row in con.execute(f"SELECT {column} FROM {table}").fetchall()
@@ -6287,12 +6387,17 @@ def community_map_approve(post_id: int, body: CommunityMapUserIn):
         row = community_map_post_row(con, post_id, body.user_id)
         if not row or (row["pair_low_id"], row["pair_high_id"]) != (low, high):
             raise HTTPException(404, "map post not found")
-        column = "low_approved" if me["id"] == low else "high_approved"
         now = datetime.datetime.now().isoformat(timespec="seconds")
-        con.execute(
-            f"UPDATE community_map_posts SET {column}=1,updated_at=? WHERE id=?",
-            (now, post_id),
-        )
+        if me["id"] == low:
+            con.execute(
+                "UPDATE community_map_posts SET low_approved=1,updated_at=? WHERE id=?",
+                (now, post_id),
+            )
+        else:
+            con.execute(
+                "UPDATE community_map_posts SET high_approved=1,updated_at=? WHERE id=?",
+                (now, post_id),
+            )
         row = community_map_post_row(con, post_id, body.user_id)
         con.commit()
         return community_map_post_object(row, body.user_id)
