@@ -27,6 +27,8 @@ git -C /opt/enrwine/repo pull
 sudo systemctl restart enrwine
 ```
 
+Для security-релиза сначала выполните порядок из `docs/MIGRATION.md`; обычный rolling restart небезопасен при очистке plaintext session tokens.
+
 ## Секреты
 
 Создайте `/etc/enrwine.env` с правами `600` или передайте значения окружением в `deploy/apply-secrets.sh`. Не размещайте значения в shell history, Git или документации.
@@ -53,6 +55,8 @@ sudo mkdir -p "$backup"
 sudo cp /opt/enrwine/data/couple.db "$backup/"
 sudo cp -a /opt/enrwine/data/photos "$backup/"
 ```
+
+Для upload endpoint задайте на reverse proxy body limit немного выше `PHOTO_MAX_BYTES` (6 MiB при стандартном лимите 5 MiB).
 
 ## Docker и Fly.io
 

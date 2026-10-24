@@ -130,3 +130,30 @@ def test_token_hash_migration_is_reversible(tmp_path):
         "SELECT token FROM users WHERE pair_code='TOKEN1'"
     ).fetchone()[0] == raw_token
     connection.close()
+
+
+def test_secure_photo_migration_is_reversible(tmp_path):
+    db_path = tmp_path / "secure-photos.db"
+    config = migration_config(db_path)
+    command.upgrade(config, "0011_secure_photo_uploads")
+
+    command.downgrade(config, "0010_clear_plaintext_user_tokens")
+    connection = sqlite3.connect(db_path)
+    assert "size_bytes" not in columns(connection, "photo_owners")
+    tables = {
+        row[0]
+        for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
+    }
+    assert not {
+        "photo_upload_tokens",
+        "photo_upload_usage",
+        "photo_upload_limits",
+    } & tables
+    connection.close()
+
+    command.upgrade(config, "0011_secure_photo_uploads")
+    connection = sqlite3.connect(db_path)
+    assert "size_bytes" in columns(connection, "photo_owners")
+    connection.close()

@@ -37,12 +37,12 @@ python -m pytest backend
 
 Полный шаблон находится в `.env.example`. Основные группы:
 
-- Хранилище: `COUPLE_DB`, `PHOTO_DIR`, `S3_ENDPOINT`, `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_PHOTO_PREFIX`, `S3_URL_TTL`.
+- Хранилище: `COUPLE_DB`, `PHOTO_DIR`, S3-переменные и параметры `PHOTO_*`/`PHOTOS_PUBLIC_LEGACY`.
 - Telegram и платежи: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_NAME`, `TELEGRAM_PROXY`, `PREMIUM_DAYS`, `PREMIUM_PRICE`, `PREMIUM_STARS`, `PAYMENT_URL`, `ADMIN_TG_IDS`, `REF_BONUS_DAYS`.
 - Публичные URL: `APP_PUBLIC_URL`, `ANDROID_APK_URL`.
 - Firebase: `FIREBASE_SERVICE_ACCOUNT_JSON`, `FIREBASE_SERVICE_ACCOUNT_BASE64`, `FIREBASE_SERVICE_ACCOUNT_FILE`.
 - TMDB: `TMDB_API_KEY`, `TMDB_BEARER_TOKEN`, `TMDB_CATALOG_PAGES`, `TMDB_CACHE_TTL`.
-- Runtime: `PORT`, `FORWARDED_ALLOW_IPS`, `ALLOW_INSECURE_EXACT_LOCATION`.
+- Runtime: `PORT`, `FORWARDED_ALLOW_IPS`, `ALLOW_INSECURE_EXACT_LOCATION`, `WS_AUTH_TIMEOUT_SECONDS`, `WS_MAX_MESSAGE_BYTES`.
 
 Не коммитьте реальные значения. Production загружает их из `/etc/enrwine.env`.
 
@@ -52,4 +52,4 @@ Flutter-клиент хранится в отдельном соседнем che
 
 ## Production
 
-Актуальная схема развёртывания описана в `README_DEPLOY.md`. Перед миграциями или операциями с данными сделайте внешний backup `couple.db` и `photos/`.
+Актуальная схема развёртывания описана в `README_DEPLOY.md`. Порядок security-миграции и совместимость клиентов описаны в `docs/MIGRATION.md`. Перед миграциями или операциями с данными сделайте внешний backup `couple.db` и `photos/`.
