@@ -26,6 +26,10 @@ set_var S3_BUCKET "$S3_BUCKET"
 set_var S3_REGION "$S3_REGION"
 set_var S3_ACCESS_KEY_ID "$S3_ACCESS_KEY_ID"
 set_var S3_SECRET_ACCESS_KEY "$S3_SECRET_ACCESS_KEY"
+set_var S3_BACKUP_PREFIX "$S3_BACKUP_PREFIX"
+set_var BACKUP_DIR "$BACKUP_DIR"
+set_var BACKUP_RETENTION_DAYS "$BACKUP_RETENTION_DAYS"
+set_var BACKUP_ENABLE_S3 "$BACKUP_ENABLE_S3"
 set_var TMDB_API_KEY "$TMDB_API_KEY"
 set_var TMDB_BEARER_TOKEN "$TMDB_BEARER_TOKEN"
 mkdir -p /etc/systemd/system/enrwine.service.d
@@ -41,4 +45,7 @@ curl -s http://127.0.0.1:8000/health/storage || true
 echo
 echo "---PUSH---"
 curl -s http://127.0.0.1:8000/health/push || true
+echo
+echo "---HEALTH---"
+curl -s http://127.0.0.1:8000/health || true
 echo

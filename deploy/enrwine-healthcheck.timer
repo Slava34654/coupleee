@@ -1,0 +1,12 @@
+[Unit]
+Description=Check Enrwine uptime every minute
+
+[Timer]
+OnBootSec=2m
+OnUnitActiveSec=1m
+AccuracySec=10s
+Persistent=true
+Unit=enrwine-healthcheck.service
+
+[Install]
+WantedBy=timers.target

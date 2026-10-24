@@ -1,0 +1,8 @@
+[Unit]
+Description=Check Enrwine HTTP readiness
+After=enrwine.service
+
+[Service]
+Type=oneshot
+Environment=HEALTHCHECK_URL=http://127.0.0.1:8000/health
+ExecStart=/bin/bash /opt/enrwine/repo/deploy/healthcheck.sh

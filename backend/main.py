@@ -473,6 +473,7 @@ PUBLIC_HTTP_ROUTES = frozenset(
         ("GET", "/"),
         ("GET", "/Enrwine.apk"),
         ("GET", "/app/version"),
+        ("GET", "/health"),
         ("GET", "/manifest.webmanifest"),
         ("GET", "/sw.js"),
         ("GET", "/pet3d.html"),
@@ -1347,6 +1348,26 @@ def firebase_messaging():
 @app.get("/health/push", include_in_schema=False)
 def push_health():
     return {"configured": firebase_messaging() is not None}
+
+
+@app.get("/health", include_in_schema=False)
+def health(response: Response):
+    """Readiness probe: the process is useful only while SQLite is readable."""
+    connection = None
+    try:
+        connection = db()
+        schema = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='users'"
+        ).fetchone()
+        if schema is None:
+            raise RuntimeError("database schema is missing")
+        return {"status": "ok", "database": "ok"}
+    except Exception:
+        response.status_code = 503
+        return {"status": "error", "database": "unavailable"}
+    finally:
+        if connection is not None:
+            connection.close()
 
 
 @app.get("/health/bot", include_in_schema=False)

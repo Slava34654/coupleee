@@ -1,0 +1,17 @@
+[Unit]
+Description=Enrwine database and photo backup
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+EnvironmentFile=-/etc/enrwine.env
+Environment=BACKUP_ENABLE_S3=1
+ExecStart=/bin/bash /opt/enrwine/repo/deploy/backup.sh
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+
+[Install]
+WantedBy=multi-user.target
